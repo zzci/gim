@@ -26,18 +26,31 @@ loginRoute.post('/', async (c) => {
     return matrixError(c, 'M_UNKNOWN', `Unsupported login type: ${type}`)
   }
 
-  if (!identifier || !password) {
-    return matrixError(c, 'M_BAD_JSON', 'Missing identifier or password')
+  if (!password) {
+    return matrixError(c, 'M_BAD_JSON', 'Missing password')
   }
 
-  // Resolve user ID from identifier
+  // Resolve user ID from identifier or legacy 'user' field
   let userId: string
-  if (identifier.type === 'm.id.user') {
-    const user = identifier.user as string
+  if (identifier) {
+    if (identifier.type === 'm.id.user') {
+      const user = identifier.user as string
+      userId = user.startsWith('@') ? user : `@${user}:${serverName}`
+    }
+    else if (identifier.type === 'm.id.thirdparty') {
+      return matrixError(c, 'M_UNKNOWN', 'Third-party login not supported')
+    }
+    else {
+      return matrixError(c, 'M_UNKNOWN', `Unsupported identifier type: ${identifier.type}`)
+    }
+  }
+  else if (body.user) {
+    // Legacy format: { "user": "username", "password": "..." }
+    const user = body.user as string
     userId = user.startsWith('@') ? user : `@${user}:${serverName}`
   }
   else {
-    return matrixError(c, 'M_UNKNOWN', `Unsupported identifier type: ${identifier.type}`)
+    return matrixError(c, 'M_BAD_JSON', 'Missing identifier or user')
   }
 
   // Lookup user

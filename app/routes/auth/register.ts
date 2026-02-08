@@ -27,16 +27,32 @@ registerRoute.post('/', async (c) => {
     return matrixError(c, 'M_MISSING_PARAM', 'Missing username')
   }
 
+  // Validate username format
+  if (username && !/^[a-z0-9._=\-/]+$/i.test(username)) {
+    return matrixError(c, 'M_INVALID_USERNAME', 'User ID can only contain characters a-z, 0-9, ., _, =, -, and /')
+  }
+
   // Check for UIA (User-Interactive Authentication)
-  // For now, support m.login.dummy flow
   if (!authData) {
-    // Return UIA response asking for authentication
+    // Return UIA response: password registration requires m.login.dummy stage
+    // Clients should provide password in the top-level body field
     return c.json({
       flows: [
         { stages: ['m.login.dummy'] },
       ],
+      params: {},
       session: crypto.randomUUID(),
     }, 401)
+  }
+
+  // Validate UIA stage
+  if (authData.type !== 'm.login.dummy') {
+    return matrixError(c, 'M_UNKNOWN', `Unsupported auth type: ${authData.type}`)
+  }
+
+  // For regular users, password is required
+  if (kind !== 'guest' && !password) {
+    return matrixError(c, 'M_MISSING_PARAM', 'Missing password')
   }
 
   const userId = kind === 'guest'
@@ -47,11 +63,6 @@ registerRoute.post('/', async (c) => {
   const existing = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1)
   if (existing[0]) {
     return matrixError(c, 'M_USER_IN_USE', 'User ID already taken')
-  }
-
-  // Validate username format
-  if (username && !/^[a-z0-9._=\-/]+$/i.test(username)) {
-    return matrixError(c, 'M_INVALID_USERNAME', 'User ID can only contain characters a-z, 0-9, ., _, =, -, and /')
   }
 
   // Hash password
