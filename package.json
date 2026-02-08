@@ -10,7 +10,12 @@
     "start": "bun run build && bun dist/index.js",
     "compile": "bun build app/index.ts --compile --outfile dist/${npm_package_name}",
     "lint:fix": "eslint --fix",
-    "s3": "bun run tools/s3-upload.ts"
+    "s3": "bun run tools/s3-upload.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "test": "bun test"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -18,6 +23,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.817.0",
     "@hono/swagger-ui": "^0.5.1",
+    "drizzle-orm": "^0.45.1",
     "hono": "^4.7.10",
     "unstorage": "^1.16.0",
     "winston": "^3.17.0"
@@ -25,6 +31,8 @@
   "devDependencies": {
     "@antfu/eslint-config": "^4.13.2",
     "@types/bun": "latest",
+    "better-sqlite3": "^12.6.2",
+    "drizzle-kit": "^0.31.8",
     "eslint": "^9.27.0",
     "wrangler": "^4.16.1"
   }

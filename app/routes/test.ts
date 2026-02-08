@@ -1,35 +1,21 @@
 import { Hono } from 'hono'
+import { sql } from 'drizzle-orm'
+import { db } from '@/db'
+import { users } from '@/db/schema'
 
 export const testRoute = new Hono()
 
 testRoute.get('/', async (c) => {
   try {
-    const keys = await storage.keys()
-    const time = await storage.get('test')
-    const data = { time, keys }
-    return c.json(data)
+    const userCount = await db.select({ count: sql<number>`count(*)` }).from(users)
+    return c.json({
+      ok: true,
+      db: 'connected',
+      users: userCount[0]?.count ?? 0,
+    })
   }
   catch (error) {
     logger.error(error)
-    c.json({
-      ok: false,
-      error,
-    })
-  }
-})
-
-testRoute.get('/a', async (c) => {
-  try {
-    const data = {}
-    await storage.set('test', new Date().toString())
-
-    return c.json(data)
-  }
-  catch (error) {
-    logger.error(error)
-    c.json({
-      ok: false,
-      error,
-    })
+    return c.json({ ok: false, error: String(error) })
   }
 })

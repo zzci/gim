@@ -1,12 +1,11 @@
 import { Hono } from 'hono'
-import { getStorage } from '@/utils/storage'
 import { serverName, version, poweredBy } from '@/config'
+
+const startTime = new Date()
 
 export const homeRoute = new Hono()
 
 homeRoute.get('/', async (c) => {
-  const startTime = await getStorage('server', 'startTime')
-
   const data = {
     message: 'Yet another matrix server!',
     url: c.req.url,
@@ -14,7 +13,7 @@ homeRoute.get('/', async (c) => {
     version,
     poweredBy,
     startTime,
-    currectTime: new Date(),
+    currentTime: new Date(),
   }
   return c.json(data)
 })

@@ -1,40 +1,56 @@
 import { Hono } from 'hono'
-
-const data = {
-  next_batch: 's66_1358_114_52_171_4_82_97_0_1',
-  account_data: {
-    events: [
-      {
-        type: 'org.matrix.msc3890.local_notification_settings.neIjzcFEb6',
-        content: {
-          is_silenced: false,
-        },
-      },
-    ],
-  },
-  device_one_time_keys_count: {
-    signed_curve25519: 0,
-  },
-  'org.matrix.msc2732.device_unused_fallback_key_types': [],
-  device_unused_fallback_key_types: [],
-}
+import { authMiddleware, type AuthContext } from '@/middleware/auth'
+import { buildSyncResponse } from '@/services/sync'
+import { getMaxStreamOrder } from '@/services/events'
 
 export const syncRoute = new Hono()
-let id = 0
+
+syncRoute.use('/*', authMiddleware)
+
 syncRoute.get('/', async (c) => {
-  try {
-    if (id === 0) {
-      id++
-      return c.json(data)
+  const auth = c.get('auth') as AuthContext
+  const since = c.req.query('since')
+  const timeout = Math.min(Number.parseInt(c.req.query('timeout') || '0'), 30000)
+  const fullState = c.req.query('full_state') === 'true'
+  const setPresence = c.req.query('set_presence')
+
+  // Build initial response
+  let response = buildSyncResponse({
+    userId: auth.userId,
+    deviceId: auth.deviceId,
+    since: since || undefined,
+    fullState,
+    setPresence: setPresence || undefined,
+  })
+
+  // If incremental sync has no changes and timeout > 0, long-poll
+  if (since && timeout > 0) {
+    const hasChanges = Object.keys(response.rooms.join).length > 0
+      || Object.keys(response.rooms.invite).length > 0
+      || Object.keys(response.rooms.leave).length > 0
+      || response.to_device.events.length > 0
+
+    if (!hasChanges) {
+      const startTime = Date.now()
+      const pollInterval = 1000
+
+      while (Date.now() - startTime < timeout) {
+        const currentMax = getMaxStreamOrder()
+        const sinceOrder = Number.parseInt(since)
+        if (currentMax > sinceOrder) {
+          response = buildSyncResponse({
+            userId: auth.userId,
+            deviceId: auth.deviceId,
+            since,
+            fullState,
+            setPresence: setPresence || undefined,
+          })
+          break
+        }
+        await sleep(pollInterval)
+      }
     }
-    c.status(204)
-    sleep(10000)
-    return c.text('')
-  } catch (error) {
-    logger.error(error)
-    c.json({
-      ok: false,
-      error,
-    })
   }
+
+  return c.json(response)
 })
