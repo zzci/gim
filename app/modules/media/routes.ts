@@ -61,17 +61,65 @@ function checkUploadRateLimit(userId: string): boolean {
   return entry.count <= mediaUploadsPerHour
 }
 
-function checkStorageQuota(userId: string, uploadSize: number): boolean {
-  if (mediaQuotaMb <= 0)
+class QuotaExceededError extends Error {}
+
+/**
+ * Atomically check quota and insert media record in a single transaction.
+ * Eliminates the TOCTOU race condition where concurrent uploads could exceed quota.
+ * Returns true if reservation succeeded, false if quota exceeded.
+ */
+function reserveMediaRecord(values: {
+  id: string
+  userId: string
+  contentType: string
+  fileName: string | null
+  fileSize: number
+  storagePath: string
+}, upsert = false): boolean {
+  if (mediaQuotaMb <= 0) {
+    // No quota limit — just insert
+    if (upsert) {
+      db.insert(media).values(values).onConflictDoUpdate({
+        target: media.id,
+        set: { contentType: values.contentType, fileName: values.fileName, fileSize: values.fileSize, storagePath: values.storagePath },
+      }).run()
+    }
+    else {
+      db.insert(media).values(values).run()
+    }
     return true
+  }
 
-  const row = db.select({ total: sql<number>`coalesce(sum(${media.fileSize}), 0)` })
-    .from(media)
-    .where(eq(media.userId, userId))
-    .get()
+  try {
+    db.transaction((tx) => {
+      // Check quota inside transaction — SQLite serializes writes, so this is atomic
+      const row = tx.select({ total: sql<number>`coalesce(sum(${media.fileSize}), 0)` })
+        .from(media)
+        .where(eq(media.userId, values.userId))
+        .get()
 
-  const used = row?.total || 0
-  return (used + uploadSize) <= mediaQuotaMb * 1024 * 1024
+      const used = row?.total || 0
+      if ((used + values.fileSize) > mediaQuotaMb * 1024 * 1024) {
+        throw new QuotaExceededError()
+      }
+
+      if (upsert) {
+        tx.insert(media).values(values).onConflictDoUpdate({
+          target: media.id,
+          set: { contentType: values.contentType, fileName: values.fileName, fileSize: values.fileSize, storagePath: values.storagePath },
+        }).run()
+      }
+      else {
+        tx.insert(media).values(values).run()
+      }
+    })
+    return true
+  }
+  catch (e) {
+    if (e instanceof QuotaExceededError)
+      return false
+    throw e
+  }
 }
 
 function isS3Path(storagePath: string): boolean {
@@ -101,29 +149,27 @@ mediaUploadRoute.post('/', async (c) => {
     return matrixError(c, 'M_TOO_LARGE', 'Upload exceeds maximum size')
   }
 
-  if (!checkStorageQuota(auth.userId, body.byteLength))
+  const mediaId = generateMediaId()
+  const storagePath = isS3Enabled() ? `s3:${mediaId}` : join(MEDIA_DIR, mediaId)
+
+  // Atomic quota check + record insert in one transaction
+  if (!reserveMediaRecord({ id: mediaId, userId: auth.userId, contentType, fileName, fileSize: body.byteLength, storagePath }))
     return matrixError(c, 'M_TOO_LARGE', `Storage quota exceeded (${mediaQuotaMb}MB)`)
 
-  const mediaId = generateMediaId()
-  let storagePath: string
-
-  if (isS3Enabled()) {
-    await uploadToS3(mediaId, body, contentType)
-    storagePath = `s3:${mediaId}`
+  // Upload file after quota is reserved
+  try {
+    if (isS3Enabled()) {
+      await uploadToS3(mediaId, body, contentType)
+    }
+    else {
+      await Bun.write(storagePath, body)
+    }
   }
-  else {
-    storagePath = join(MEDIA_DIR, mediaId)
-    await Bun.write(storagePath, body)
+  catch (e) {
+    // Upload failed — release reserved quota by deleting the record
+    db.delete(media).where(eq(media.id, mediaId)).run()
+    throw e
   }
-
-  db.insert(media).values({
-    id: mediaId,
-    userId: auth.userId,
-    contentType,
-    fileName,
-    fileSize: body.byteLength,
-    storagePath,
-  }).run()
 
   return c.json({
     content_uri: `mxc://${serverName}/${mediaId}`,
@@ -148,20 +194,8 @@ mediaUploadRoute.put('/:server/:mediaId', async (c) => {
     if (!head)
       return matrixNotFound(c, 'Media file not found in storage')
 
-    if (!checkStorageQuota(auth.userId, head.size))
+    if (!reserveMediaRecord({ id: mediaId, userId: auth.userId, contentType: head.contentType, fileName, fileSize: head.size, storagePath: `s3:${mediaId}` }, true))
       return matrixError(c, 'M_TOO_LARGE', `Storage quota exceeded (${mediaQuotaMb}MB)`)
-
-    db.insert(media).values({
-      id: mediaId,
-      userId: auth.userId,
-      contentType: head.contentType,
-      fileName,
-      fileSize: head.size,
-      storagePath: `s3:${mediaId}`,
-    }).onConflictDoUpdate({
-      target: media.id,
-      set: { contentType: head.contentType, fileName, fileSize: head.size, storagePath: `s3:${mediaId}` },
-    }).run()
 
     return c.json({})
   }
@@ -170,31 +204,25 @@ mediaUploadRoute.put('/:server/:mediaId', async (c) => {
     return matrixError(c, 'M_TOO_LARGE', 'Upload exceeds maximum size')
   }
 
-  if (!checkStorageQuota(auth.userId, body.byteLength))
+  const storagePath = isS3Enabled() ? `s3:${mediaId}` : join(MEDIA_DIR, mediaId)
+
+  // Atomic quota check + record insert
+  if (!reserveMediaRecord({ id: mediaId, userId: auth.userId, contentType, fileName, fileSize: body.byteLength, storagePath }, true))
     return matrixError(c, 'M_TOO_LARGE', `Storage quota exceeded (${mediaQuotaMb}MB)`)
 
-  let storagePath: string
-
-  if (isS3Enabled()) {
-    await uploadToS3(mediaId, body, contentType)
-    storagePath = `s3:${mediaId}`
+  // Upload file after quota is reserved
+  try {
+    if (isS3Enabled()) {
+      await uploadToS3(mediaId, body, contentType)
+    }
+    else {
+      await Bun.write(storagePath, body)
+    }
   }
-  else {
-    storagePath = join(MEDIA_DIR, mediaId)
-    await Bun.write(storagePath, body)
+  catch (e) {
+    db.delete(media).where(eq(media.id, mediaId)).run()
+    throw e
   }
-
-  db.insert(media).values({
-    id: mediaId,
-    userId: auth.userId,
-    contentType,
-    fileName,
-    fileSize: body.byteLength,
-    storagePath,
-  }).onConflictDoUpdate({
-    target: media.id,
-    set: { contentType, fileName, fileSize: body.byteLength, storagePath },
-  }).run()
 
   return c.json({})
 })

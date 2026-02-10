@@ -1,6 +1,6 @@
 import { and, eq, inArray, lt } from 'drizzle-orm'
-import { db } from '@/db'
-import { presence, roomMembers } from '@/db/schema'
+import { db, sqlite } from '@/db'
+import { presence } from '@/db/schema'
 
 const UNAVAILABLE_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 const OFFLINE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
@@ -65,36 +65,20 @@ export function expirePresence() {
 }
 
 export function getPresenceForRoommates(userId: string) {
-  // Get all rooms the user is in
-  const userRooms = db.select({ roomId: roomMembers.roomId })
-    .from(roomMembers)
-    .where(and(
-      eq(roomMembers.userId, userId),
-      eq(roomMembers.membership, 'join'),
-    ))
-    .all()
+  // Single query: get all unique roommate user IDs via subquery join
+  // Replaces N+1 pattern of querying members per room
+  const roommateIds = sqlite.prepare(`
+    SELECT DISTINCT rm2.user_id
+    FROM room_members rm1
+    JOIN room_members rm2
+      ON rm1.room_id = rm2.room_id AND rm2.membership = 'join'
+    WHERE rm1.user_id = ? AND rm1.membership = 'join'
+      AND rm2.user_id != ?
+  `).all(userId, userId) as { user_id: string }[]
 
-  if (userRooms.length === 0)
+  if (roommateIds.length === 0)
     return []
 
-  // Get all unique members from those rooms
-  const roommateIds = new Set<string>()
-  for (const room of userRooms) {
-    const members = db.select({ userId: roomMembers.userId })
-      .from(roomMembers)
-      .where(and(
-        eq(roomMembers.roomId, room.roomId),
-        eq(roomMembers.membership, 'join'),
-      ))
-      .all()
-    for (const m of members) {
-      if (m.userId !== userId)
-        roommateIds.add(m.userId)
-    }
-  }
-
-  if (roommateIds.size === 0)
-    return []
-
-  return db.select().from(presence).where(inArray(presence.userId, [...roommateIds])).all()
+  const ids = roommateIds.map(r => r.user_id)
+  return db.select().from(presence).where(inArray(presence.userId, ids)).all()
 }

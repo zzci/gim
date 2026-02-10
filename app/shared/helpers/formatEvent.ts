@@ -1,6 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
-import { db } from '@/db'
-import { eventsTimeline } from '@/db/schema'
+import { sqlite } from '@/db'
 
 export function formatEvent(e: any) {
   const result: any = {
@@ -25,52 +23,107 @@ export function formatEvent(e: any) {
  * If the event has been edited (via m.replace), the returned event will have:
  * - content replaced with m.new_content from the latest edit
  * - unsigned.m.relations.m.replace pointing to the latest edit event
+ *
+ * NOTE: For batch processing, prefer formatEventListWithRelations which uses
+ * a single SQL query instead of N+1 queries.
  */
 export function formatEventWithRelations(e: any) {
-  const result = formatEvent(e)
+  return formatEventListWithRelations([e])[0]!
+}
 
-  // Skip relation aggregation for state events and redacted events
-  if (e.stateKey !== null && e.stateKey !== undefined)
-    return result
-  if (result.unsigned?.redacted_because)
-    return result
+/**
+ * Batch format events with relation aggregation using a single SQL query.
+ * Replaces the N+1 pattern of querying edits per event.
+ */
+export function formatEventListWithRelations(events: any[]) {
+  // Separate state/redacted events (no relation processing needed) from timeline events
+  const results: any[] = []
+  const timelineIndices: number[] = []
+  const timelineEvents: any[] = []
 
-  // Look up latest m.replace edit for this event (only in timeline events)
-  const latestEdit = db.select()
-    .from(eventsTimeline)
-    .where(and(
-      eq(eventsTimeline.roomId, e.roomId),
-      eq(eventsTimeline.type, e.type),
-    ))
-    .orderBy(desc(eventsTimeline.originServerTs))
-    .all()
-    .find((ev) => {
-      const content = ev.content as Record<string, unknown>
-      const rel = content['m.relates_to'] as Record<string, unknown> | undefined
-      return rel?.rel_type === 'm.replace' && rel?.event_id === `$${e.id}`
-    })
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i]!
+    const result = formatEvent(e)
+    results.push(result)
 
-  if (latestEdit) {
-    const editContent = latestEdit.content as Record<string, unknown>
-    const newContent = editContent['m.new_content'] as Record<string, unknown> | undefined
-    if (newContent) {
-      result.content = newContent
-    }
-    result.unsigned = {
-      ...result.unsigned,
-      'm.relations': {
-        'm.replace': formatEvent({ ...latestEdit, stateKey: null }),
-      },
+    const isState = e.stateKey !== null && e.stateKey !== undefined
+    const isRedacted = result.unsigned?.redacted_because
+    if (!isState && !isRedacted) {
+      timelineIndices.push(i)
+      timelineEvents.push(e)
     }
   }
 
-  return result
+  if (timelineEvents.length === 0)
+    return results
+
+  // Collect event IDs that need edit lookup, grouped by roomId
+  const eventIdsByRoom = new Map<string, string[]>()
+  for (const e of timelineEvents) {
+    const ids = eventIdsByRoom.get(e.roomId)
+    if (ids)
+      ids.push(`$${e.id}`)
+    else eventIdsByRoom.set(e.roomId, [`$${e.id}`])
+  }
+
+  // Batch query: find all m.replace edits targeting our event IDs
+  // Uses SQLite json_extract to filter directly in SQL instead of fetching all events
+  const editMap = new Map<string, any>() // target event_id → latest edit row
+
+  for (const [roomId, targetIds] of eventIdsByRoom) {
+    const placeholders = targetIds.map(() => '?').join(',')
+    const query = `
+      SELECT id, room_id, sender, type, content, origin_server_ts, unsigned
+      FROM events_timeline
+      WHERE room_id = ?
+        AND json_extract(content, '$."m.relates_to".rel_type') = 'm.replace'
+        AND json_extract(content, '$."m.relates_to".event_id') IN (${placeholders})
+      ORDER BY origin_server_ts DESC
+    `
+    const rows = sqlite.prepare(query).all(roomId, ...targetIds) as any[]
+
+    for (const row of rows) {
+      const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content
+      const targetEventId = content['m.relates_to']?.event_id
+      if (targetEventId && !editMap.has(targetEventId)) {
+        // First match is the latest edit (ordered by origin_server_ts DESC)
+        editMap.set(targetEventId, {
+          id: row.id,
+          roomId: row.room_id,
+          sender: row.sender,
+          type: row.type,
+          content,
+          originServerTs: row.origin_server_ts,
+          unsigned: row.unsigned ? (typeof row.unsigned === 'string' ? JSON.parse(row.unsigned) : row.unsigned) : null,
+          stateKey: null,
+        })
+      }
+    }
+  }
+
+  // Apply edits to formatted results
+  for (const idx of timelineIndices) {
+    const e = events[idx]!
+    const result = results[idx]!
+    const latestEdit = editMap.get(`$${e.id}`)
+
+    if (latestEdit) {
+      const newContent = latestEdit.content['m.new_content'] as Record<string, unknown> | undefined
+      if (newContent) {
+        result.content = newContent
+      }
+      result.unsigned = {
+        ...result.unsigned,
+        'm.relations': {
+          'm.replace': formatEvent(latestEdit),
+        },
+      }
+    }
+  }
+
+  return results
 }
 
 export function formatEventList(events: any[]) {
   return events.map(formatEvent)
-}
-
-export function formatEventListWithRelations(events: any[]) {
-  return events.map(formatEventWithRelations)
 }

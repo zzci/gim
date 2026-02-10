@@ -1,5 +1,5 @@
-import { and, asc, eq, gt, inArray, lte } from 'drizzle-orm'
-import { db } from '@/db'
+import { and, asc, count, eq, gt, inArray, lte } from 'drizzle-orm'
+import { db, sqlite } from '@/db'
 import {
   accountData,
   currentRoomState,
@@ -9,15 +9,13 @@ import {
   e2eeOneTimeKeys,
   e2eeToDeviceMessages,
   eventsState,
-  eventsTimeline,
-  readReceipts,
   roomMembers,
   typingNotifications,
 } from '@/db/schema'
 import { getMaxEventId } from '@/modules/message/service'
 import { getPresenceForRoommates } from '@/modules/presence/service'
 import { queryEventById, queryRoomEvents } from '@/shared/helpers/eventQueries'
-import { formatEvent, formatEventWithRelations } from '@/shared/helpers/formatEvent'
+import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
 
 const DEFAULT_TIMELINE_LIMIT = 10
 
@@ -50,8 +48,9 @@ function buildJoinedRoomData(
   roomId: string,
   userId: string,
   sinceId: string | null,
+  batchData: BatchSyncData,
 ): JoinedRoomData | null {
-  // Get timeline events (merged from both tables)
+  // Get timeline events (merged from both tables via UNION ALL)
   let roomEvents: any[]
   let limited = false
   let prevBatch = ''
@@ -111,28 +110,11 @@ function buildJoinedRoomData(
     eq(accountData.roomId, roomId),
   )).all()
 
-  // Get room member counts for summary
-  const joinedCount = db.select().from(roomMembers).where(and(
-    eq(roomMembers.roomId, roomId),
-    eq(roomMembers.membership, 'join'),
-  )).all().length
+  // Use pre-batched member counts
+  const counts = batchData.memberCounts.get(roomId) ?? { joined: 0, invited: 0 }
 
-  const invitedCount = db.select().from(roomMembers).where(and(
-    eq(roomMembers.roomId, roomId),
-    eq(roomMembers.membership, 'invite'),
-  )).all().length
-
-  // Get heroes (other members' user IDs for room name computation)
-  const otherMembers = db.select({ userId: roomMembers.userId })
-    .from(roomMembers)
-    .where(and(
-      eq(roomMembers.roomId, roomId),
-      eq(roomMembers.membership, 'join'),
-    ))
-    .all()
-    .filter(m => m.userId !== userId)
-    .slice(0, 5)
-    .map(m => m.userId)
+  // Use pre-batched heroes
+  const otherMembers = batchData.heroes.get(roomId) ?? []
 
   // Ephemeral events: typing + receipts
   const ephemeralEvents: any[] = []
@@ -157,12 +139,11 @@ function buildJoinedRoomData(
     })
   }
 
-  // Read receipts for this room
-  const receipts = db.select().from(readReceipts).where(eq(readReceipts.roomId, roomId)).all()
-
-  if (receipts.length > 0) {
+  // Use pre-batched read receipts
+  const roomReceipts = batchData.receipts.get(roomId) ?? []
+  if (roomReceipts.length > 0) {
     const receiptContent: Record<string, Record<string, Record<string, { ts: number }>>> = {}
-    for (const r of receipts) {
+    for (const r of roomReceipts) {
       const wireEventId = `$${r.eventId}`
       if (!receiptContent[wireEventId])
         receiptContent[wireEventId] = {}
@@ -176,30 +157,12 @@ function buildJoinedRoomData(
     })
   }
 
-  // Notification counts: count timeline events after user's last read receipt
-  let notificationCount = 0
-  const lastRead = db.select().from(readReceipts).where(and(
-    eq(readReceipts.roomId, roomId),
-    eq(readReceipts.userId, userId),
-    eq(readReceipts.receiptType, 'm.read'),
-  )).get()
-
-  if (lastRead) {
-    // The read receipt eventId is a raw ULID — count timeline events after it
-    const unreadEvents = db.select().from(eventsTimeline).where(and(
-      eq(eventsTimeline.roomId, roomId),
-      gt(eventsTimeline.id, lastRead.eventId),
-    )).all()
-    notificationCount = unreadEvents.length
-  }
-  else if (sinceId !== null) {
-    // No read receipt: count timeline events in this batch
-    notificationCount = roomEvents.filter(e => e.stateKey === null).length
-  }
+  // Use pre-batched notification count
+  const notificationCount = batchData.unreadCounts.get(roomId) ?? 0
 
   return {
     timeline: {
-      events: roomEvents.map(formatEventWithRelations),
+      events: formatEventListWithRelations(roomEvents),
       limited,
       prev_batch: prevBatch,
     },
@@ -219,10 +182,104 @@ function buildJoinedRoomData(
     },
     summary: {
       'm.heroes': otherMembers,
-      'm.joined_member_count': joinedCount,
-      'm.invited_member_count': invitedCount,
+      'm.joined_member_count': counts.joined,
+      'm.invited_member_count': counts.invited,
     },
   }
+}
+
+/** Batch data pre-fetched for all rooms in a single pass */
+interface BatchSyncData {
+  memberCounts: Map<string, { joined: number, invited: number }>
+  heroes: Map<string, string[]>
+  receipts: Map<string, Array<{ userId: string, eventId: string, receiptType: string, ts: number }>>
+  unreadCounts: Map<string, number>
+}
+
+function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: string | null): BatchSyncData {
+  const memberCounts = new Map<string, { joined: number, invited: number }>()
+  const heroes = new Map<string, string[]>()
+  const receipts = new Map<string, Array<{ userId: string, eventId: string, receiptType: string, ts: number }>>()
+  const unreadCounts = new Map<string, number>()
+
+  if (roomIds.length === 0)
+    return { memberCounts, heroes, receipts, unreadCounts }
+
+  // Batch member counts using SQL COUNT with GROUP BY
+  const countRows = sqlite.prepare(`
+    SELECT room_id,
+      SUM(CASE WHEN membership = 'join' THEN 1 ELSE 0 END) as joined,
+      SUM(CASE WHEN membership = 'invite' THEN 1 ELSE 0 END) as invited
+    FROM room_members
+    WHERE room_id IN (${roomIds.map(() => '?').join(',')})
+    GROUP BY room_id
+  `).all(...roomIds) as Array<{ room_id: string, joined: number, invited: number }>
+
+  for (const row of countRows) {
+    memberCounts.set(row.room_id, { joined: row.joined, invited: row.invited })
+  }
+
+  // Batch heroes: other joined members (limit 5 per room)
+  const heroRows = sqlite.prepare(`
+    SELECT room_id, user_id
+    FROM room_members
+    WHERE room_id IN (${roomIds.map(() => '?').join(',')})
+      AND membership = 'join' AND user_id != ?
+  `).all(...roomIds, userId) as Array<{ room_id: string, user_id: string }>
+
+  for (const row of heroRows) {
+    const existing = heroes.get(row.room_id)
+    if (existing) {
+      if (existing.length < 5)
+        existing.push(row.user_id)
+    }
+    else {
+      heroes.set(row.room_id, [row.user_id])
+    }
+  }
+
+  // Batch read receipts for all rooms
+  const receiptRows = sqlite.prepare(`
+    SELECT room_id, user_id, event_id, receipt_type, ts
+    FROM read_receipts
+    WHERE room_id IN (${roomIds.map(() => '?').join(',')})
+  `).all(...roomIds) as Array<{ room_id: string, user_id: string, event_id: string, receipt_type: string, ts: number }>
+
+  for (const row of receiptRows) {
+    const roomReceipts = receipts.get(row.room_id)
+    const entry = { userId: row.user_id, eventId: row.event_id, receiptType: row.receipt_type, ts: row.ts }
+    if (roomReceipts)
+      roomReceipts.push(entry)
+    else receipts.set(row.room_id, [entry])
+  }
+
+  // Batch unread notification counts: single query with GROUP BY
+  // First get user's read receipt per room, then count unread timeline events
+  const unreadRows = sqlite.prepare(`
+    SELECT et.room_id, COUNT(*) as cnt
+    FROM events_timeline et
+    LEFT JOIN read_receipts rr
+      ON rr.room_id = et.room_id AND rr.user_id = ? AND rr.receipt_type = 'm.read'
+    WHERE et.room_id IN (${roomIds.map(() => '?').join(',')})
+      AND (rr.event_id IS NULL OR et.id > rr.event_id)
+    GROUP BY et.room_id
+  `).all(userId, ...roomIds) as Array<{ room_id: string, cnt: number }>
+
+  for (const row of unreadRows) {
+    unreadCounts.set(row.room_id, row.cnt)
+  }
+
+  // For rooms without a read receipt in incremental sync, count timeline events in batch
+  if (sinceId !== null) {
+    for (const roomId of roomIds) {
+      if (!unreadCounts.has(roomId)) {
+        // Will be set to 0 or overridden per-room based on actual events found
+        unreadCounts.set(roomId, 0)
+      }
+    }
+  }
+
+  return { memberCounts, heroes, receipts, unreadCounts }
 }
 
 export function buildSyncResponse(opts: SyncOptions) {
@@ -242,9 +299,13 @@ export function buildSyncResponse(opts: SyncOptions) {
   const inviteRooms: Record<string, any> = {}
   const leaveRooms: Record<string, any> = {}
 
+  // Pre-fetch batch data for all joined rooms
+  const joinedRoomIds = memberRooms.filter(mr => mr.membership === 'join').map(mr => mr.roomId)
+  const batchData = prefetchBatchSyncData(joinedRoomIds, opts.userId, sinceId)
+
   for (const mr of memberRooms) {
     if (mr.membership === 'join') {
-      const roomData = buildJoinedRoomData(mr.roomId, opts.userId, sinceId)
+      const roomData = buildJoinedRoomData(mr.roomId, opts.userId, sinceId, batchData)
       if (roomData) {
         joinRooms[mr.roomId] = roomData
       }
@@ -264,13 +325,10 @@ export function buildSyncResponse(opts: SyncOptions) {
         .where(eq(currentRoomState.roomId, mr.roomId))
         .all()
 
-      const inviteEvents = []
-      for (const sr of stateRows) {
-        const event = db.select().from(eventsState).where(eq(eventsState.id, sr.eventId)).get()
-        if (event && ['m.room.create', 'm.room.name', 'm.room.member', 'm.room.canonical_alias', 'm.room.avatar', 'm.room.join_rules'].includes(event.type)) {
-          inviteEvents.push(formatEvent(event))
-        }
-      }
+      const inviteStateIds = stateRows.map(sr => sr.eventId)
+      const inviteEvents = inviteStateIds.length > 0
+        ? db.select().from(eventsState).where(inArray(eventsState.id, inviteStateIds)).all().filter(event => ['m.room.create', 'm.room.name', 'm.room.member', 'm.room.canonical_alias', 'm.room.avatar', 'm.room.join_rules'].includes(event.type)).map(formatEvent)
+        : []
 
       inviteRooms[mr.roomId] = {
         invite_state: { events: inviteEvents },
@@ -297,12 +355,13 @@ export function buildSyncResponse(opts: SyncOptions) {
     )).all().map(d => ({ type: d.type, content: d.content }))
   }
 
-  // Device one-time key counts
-  const otkCount = db.select().from(e2eeOneTimeKeys).where(and(
+  // Device one-time key counts — use SQL COUNT instead of .all().length
+  const otkResult = db.select({ cnt: count() }).from(e2eeOneTimeKeys).where(and(
     eq(e2eeOneTimeKeys.userId, opts.userId),
     eq(e2eeOneTimeKeys.deviceId, opts.deviceId),
     eq(e2eeOneTimeKeys.claimed, false),
-  )).all().length
+  )).get()
+  const otkCount = otkResult?.cnt ?? 0
 
   // Wrap to-device message handling in transaction for atomicity
   const { toDeviceEvents } = db.transaction((tx) => {

@@ -6,7 +6,7 @@ import { accountData, currentRoomState, eventsState, eventsTimeline, readReceipt
 import { createEvent } from '@/modules/message/service'
 import { getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
 import { parseEventId, queryEventById, queryRoomEvents } from '@/shared/helpers/eventQueries'
-import { formatEvent, formatEventWithRelations } from '@/shared/helpers/formatEvent'
+import { formatEvent, formatEventListWithRelations, formatEventWithRelations } from '@/shared/helpers/formatEvent'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 import { eventContent, validate } from '@/shared/validation'
@@ -90,7 +90,7 @@ messageRouter.get('/:roomId/messages', async (c) => {
     limit,
   })
 
-  const chunk = rows.map(formatEventWithRelations)
+  const chunk = formatEventListWithRelations(rows)
 
   const startToken = from || (rows[0] ? rows[0].id : '0')
   const endToken = rows.length > 0 ? rows[rows.length - 1]!.id : startToken
@@ -446,8 +446,8 @@ messageRouter.get('/:roomId/context/:eventId', async (c) => {
 
   return c.json({
     event: formatEventWithRelations(target),
-    events_before: eventsBefore.map(formatEventWithRelations),
-    events_after: eventsAfter.map(formatEventWithRelations),
+    events_before: formatEventListWithRelations(eventsBefore),
+    events_after: formatEventListWithRelations(eventsAfter),
     start,
     end,
     state: currentState.map(formatEvent),

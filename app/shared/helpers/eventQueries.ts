@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gt, lt, max } from 'drizzle-orm'
-import { db } from '@/db'
+import { db, sqlite } from '@/db'
 import { eventsState, eventsTimeline } from '@/db/schema'
 
 export interface EventRow {
@@ -36,38 +36,49 @@ interface RoomEventsOpts {
   limit: number
 }
 
-/** Query events from both tables for a room, merged and sorted by id (ULID) */
+function parseRawEventRow(r: any): EventRow {
+  return {
+    id: r.id,
+    roomId: r.room_id,
+    sender: r.sender,
+    type: r.type,
+    stateKey: r.state_key,
+    content: typeof r.content === 'string' ? JSON.parse(r.content) : r.content,
+    originServerTs: r.origin_server_ts,
+    unsigned: r.unsigned ? (typeof r.unsigned === 'string' ? JSON.parse(r.unsigned) : r.unsigned) : null,
+  }
+}
+
+/** Query events from both tables for a room using UNION ALL (single SQL query) */
 export function queryRoomEvents(roomId: string, opts: RoomEventsOpts): EventRow[] {
-  const orderFn = opts.order === 'asc' ? asc : desc
+  const dir = opts.order === 'asc' ? 'ASC' : 'DESC'
 
-  // Build conditions for state events
-  const stateConds = [eq(eventsState.roomId, roomId)]
-  if (opts.after)
-    stateConds.push(gt(eventsState.id, opts.after))
-  if (opts.before)
-    stateConds.push(lt(eventsState.id, opts.before))
+  let whereClause = 'room_id = ?'
+  const params: unknown[] = [roomId]
 
-  // Build conditions for timeline events
-  const tlConds = [eq(eventsTimeline.roomId, roomId)]
-  if (opts.after)
-    tlConds.push(gt(eventsTimeline.id, opts.after))
-  if (opts.before)
-    tlConds.push(lt(eventsTimeline.id, opts.before))
-
-  const stateRows = db.select().from(eventsState).where(and(...stateConds)).orderBy(orderFn(eventsState.id)).limit(opts.limit).all().map(r => ({ ...r, stateKey: r.stateKey as string | null }))
-
-  const tlRows = db.select().from(eventsTimeline).where(and(...tlConds)).orderBy(orderFn(eventsTimeline.id)).limit(opts.limit).all().map(r => ({ ...r, stateKey: null as string | null }))
-
-  // Merge and sort
-  const all = [...stateRows, ...tlRows]
-  if (opts.order === 'asc') {
-    all.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  if (opts.after) {
+    whereClause += ' AND id > ?'
+    params.push(opts.after)
   }
-  else {
-    all.sort((a, b) => a.id > b.id ? -1 : a.id < b.id ? 1 : 0)
+  if (opts.before) {
+    whereClause += ' AND id < ?'
+    params.push(opts.before)
   }
 
-  return all.slice(0, opts.limit)
+  // UNION ALL merges both tables in a single SQL query, ordered and limited at DB level
+  const query = `
+    SELECT id, room_id, sender, type, state_key, content, origin_server_ts, unsigned
+    FROM events_state WHERE ${whereClause}
+    UNION ALL
+    SELECT id, room_id, sender, type, NULL, content, origin_server_ts, unsigned
+    FROM events_timeline WHERE ${whereClause}
+    ORDER BY 1 ${dir}
+    LIMIT ?
+  `
+
+  // Parameters duplicated for both SELECT clauses in UNION ALL
+  const rows = sqlite.prepare(query).all(...params, ...params, opts.limit) as any[]
+  return rows.map(parseRawEventRow)
 }
 
 /** Query only timeline events for a room */

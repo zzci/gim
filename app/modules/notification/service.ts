@@ -2,7 +2,7 @@ import type { MatrixEvent } from '@/modules/message/service'
 import { and, count, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { accounts, currentRoomState, eventsState, pushNotifications, roomMembers } from '@/db/schema'
-import { getUserPowerLevel } from '@/modules/room/service'
+import { TtlCache } from '@/utils/ttlCache'
 
 interface PushRule {
   rule_id: string
@@ -19,6 +19,21 @@ interface PushCondition {
   pattern?: string
   value?: unknown
   is?: string
+}
+
+// Caches for hot data queried repeatedly during push rule evaluation
+const memberCountCache = new TtlCache<number>(60_000) // TTL 1min
+const powerLevelCache = new TtlCache<Record<string, unknown>>(60_000) // TTL 1min
+const displayNameCache = new TtlCache<string | null>(300_000) // TTL 5min
+
+/** Invalidate power level cache for a room (call on m.room.power_levels change) */
+export function invalidatePowerLevelCache(roomId: string) {
+  powerLevelCache.invalidatePrefix(`pl:${roomId}`)
+}
+
+/** Invalidate member count cache for a room (call on membership change) */
+export function invalidateMemberCountCache(roomId: string) {
+  memberCountCache.invalidate(`mc:${roomId}`)
 }
 
 export function getDefaultPushRules(userId: string) {
@@ -263,6 +278,10 @@ function globToRegex(pattern: string): RegExp {
 }
 
 function getRoomMemberCount(roomId: string): number {
+  const cached = memberCountCache.get(`mc:${roomId}`)
+  if (cached !== undefined)
+    return cached
+
   const result = db.select({ cnt: count() })
     .from(roomMembers)
     .where(and(
@@ -270,18 +289,31 @@ function getRoomMemberCount(roomId: string): number {
       eq(roomMembers.membership, 'join'),
     ))
     .get()
-  return result?.cnt ?? 0
+  const cnt = result?.cnt ?? 0
+  memberCountCache.set(`mc:${roomId}`, cnt)
+  return cnt
 }
 
 function getUserDisplayName(userId: string): string | null {
+  const cached = displayNameCache.get(`dn:${userId}`)
+  if (cached !== undefined)
+    return cached
+
   const account = db.select({ displayname: accounts.displayname })
     .from(accounts)
     .where(eq(accounts.id, userId))
     .get()
-  return account?.displayname ?? null
+  const name = account?.displayname ?? null
+  displayNameCache.set(`dn:${userId}`, name)
+  return name
 }
 
-function getNotificationPowerLevel(roomId: string): number {
+/** Get the power level content for a room, with caching */
+function getPowerLevelContent(roomId: string): Record<string, unknown> | null {
+  const cached = powerLevelCache.get(`pl:${roomId}`)
+  if (cached !== undefined)
+    return cached
+
   const stateRow = db.select({ eventId: currentRoomState.eventId })
     .from(currentRoomState)
     .where(and(
@@ -291,20 +323,39 @@ function getNotificationPowerLevel(roomId: string): number {
     ))
     .get()
 
-  if (!stateRow)
-    return 50
+  if (!stateRow) {
+    powerLevelCache.set(`pl:${roomId}`, null as any)
+    return null
+  }
 
   const event = db.select({ content: eventsState.content })
     .from(eventsState)
     .where(eq(eventsState.id, stateRow.eventId))
     .get()
 
-  if (!event)
-    return 50
+  const content = (event?.content as Record<string, unknown>) ?? null
+  if (content)
+    powerLevelCache.set(`pl:${roomId}`, content)
+  return content
+}
 
-  const content = event.content as Record<string, unknown>
+function getNotificationPowerLevel(roomId: string): number {
+  const content = getPowerLevelContent(roomId)
+  if (!content)
+    return 50
   const notifs = content.notifications as Record<string, number> | undefined
   return notifs?.room ?? 50
+}
+
+function getCachedUserPowerLevel(roomId: string, userId: string): number {
+  const content = getPowerLevelContent(roomId)
+  if (!content)
+    return 0
+  const usersMap = content.users as Record<string, number> | undefined
+  if (usersMap && userId in usersMap) {
+    return usersMap[userId]!
+  }
+  return (content.users_default as number) ?? 0
 }
 
 function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: string, userId: string): boolean {
@@ -359,7 +410,7 @@ function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: st
 
     case 'sender_notification_permission': {
       const requiredLevel = getNotificationPowerLevel(roomId)
-      const senderLevel = getUserPowerLevel(roomId, event.sender)
+      const senderLevel = getCachedUserPowerLevel(roomId, event.sender)
       return senderLevel >= requiredLevel
     }
 
