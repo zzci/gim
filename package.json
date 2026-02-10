@@ -7,9 +7,7 @@
   "scripts": {
     "lint": "eslint",
     "dev": "bun --hot app/index.ts",
-    "build": "bun build app/index.ts --target bun --outdir dist --external ioredis --external unstorage/drivers/redis",
-    "start": "bun run build && bun dist/index.js",
-    "compile": "bun build app/index.ts --compile --outfile dist/${npm_package_name} --external ioredis --external unstorage/drivers/redis",
+    "start": "bun app/index.ts",
     "lint:fix": "eslint --fix",
     "s3": "bun run tools/s3-upload.ts",
     "db:generate": "drizzle-kit generate",

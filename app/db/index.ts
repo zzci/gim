@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
@@ -24,4 +24,4 @@ export const db = drizzle({ client: sqlite, schema })
 export { sqlite }
 
 // Auto-migrate on startup
-migrate(db, { migrationsFolder: join(process.cwd(), 'drizzle') })
+migrate(db, { migrationsFolder: resolve(import.meta.dir, '../../drizzle') })
