@@ -53,6 +53,14 @@ pusherRoute.post('/set', async (c) => {
 
   const data = parsed.data
 
+  // Validate push gateway URL (SSRF prevention)
+  if (data.kind === 'http') {
+    const url = data.data?.url
+    if (typeof url !== 'string' || !url.startsWith('https://')) {
+      return c.json({ errcode: 'M_BAD_JSON', error: 'HTTP pushers require data.url with https:// scheme' }, 400)
+    }
+  }
+
   // kind "" means delete
   if (data.kind === '') {
     db.delete(pushers)
