@@ -1,4 +1,5 @@
 import type { pushers } from '@/db/schema'
+import { pushGatewayUrl } from '@/config'
 
 export interface PushNotification {
   event_id?: string
@@ -26,8 +27,8 @@ export async function sendPushNotification(
   pusher: typeof pushers.$inferSelect,
   notification: PushNotification,
 ): Promise<void> {
-  const url = (pusher.data as Record<string, unknown>)?.url
-  if (typeof url !== 'string') {
+  const url = (pusher.data as Record<string, unknown>)?.url as string | undefined || pushGatewayUrl
+  if (!url) {
     logger.warn('push_no_url', { pusherId: pusher.id })
     return
   }

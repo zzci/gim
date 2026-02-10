@@ -33,6 +33,9 @@ const maxRoomsPerUser = Number(process.env.IM_MAX_ROOMS_PER_USER) || 0
 const mediaQuotaMb = Number(process.env.IM_MEDIA_QUOTA_MB) || 0
 const mediaUploadsPerHour = Number(process.env.IM_MEDIA_UPLOADS_PER_HOUR) || 0
 
+// Push gateway: server-level default so clients only need to provide pushkey
+const pushGatewayUrl = process.env.IM_PUSH_GATEWAY_URL || ''
+
 // S3/R2 object storage (optional — falls back to local disk if not configured)
 const s3AccountId = process.env.S3_ACCOUNT_ID || ''
 const s3Bucket = process.env.S3_BUCKET_NAME || ''
@@ -44,4 +47,4 @@ const s3PublicUrl = process.env.S3_PUBLIC_URL || ''
 export const version = '0.1.0-beta.1'
 export const poweredBy = 'gim'
 
-export { cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, logFormat, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, upstreamClientId, upstreamClientSecret, upstreamIssuer }
+export { cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, logFormat, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, upstreamClientId, upstreamClientSecret, upstreamIssuer }

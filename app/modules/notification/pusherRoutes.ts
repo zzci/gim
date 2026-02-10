@@ -2,6 +2,7 @@ import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { pushGatewayUrl } from '@/config'
 import { db } from '@/db'
 import { pushers } from '@/db/schema'
 import { authMiddleware } from '@/shared/middleware/auth'
@@ -53,11 +54,15 @@ pusherRoute.post('/set', async (c) => {
 
   const data = parsed.data
 
-  // Validate push gateway URL (SSRF prevention)
+  // For HTTP pushers: fill in server default gateway if client omits data.url
   if (data.kind === 'http') {
+    const clientUrl = data.data?.url
+    if (!clientUrl && pushGatewayUrl) {
+      data.data = { ...data.data, url: pushGatewayUrl }
+    }
     const url = data.data?.url
     if (typeof url !== 'string' || !url.startsWith('https://')) {
-      return c.json({ errcode: 'M_BAD_JSON', error: 'HTTP pushers require data.url with https:// scheme' }, 400)
+      return c.json({ errcode: 'M_BAD_JSON', error: 'HTTP pushers require data.url with https:// scheme (or configure IM_PUSH_GATEWAY_URL on server)' }, 400)
     }
   }
 
