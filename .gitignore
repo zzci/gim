@@ -36,8 +36,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Database
 data/
 
-# Drizzle migrations
-drizzle/
 
 # Example tokens
 examples/.tokens.json

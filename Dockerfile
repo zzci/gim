@@ -21,6 +21,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production --ignore-scripts
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/admin/dist ./admin/dist
 
 RUN mkdir -p data

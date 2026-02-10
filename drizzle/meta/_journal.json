@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1770763972597,
+      "tag": "0000_colorful_iron_lad",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import * as schema from './schema'
 
 const dbPath = process.env.DB_PATH || 'data/gim.db'
@@ -21,3 +22,6 @@ sqlite.exec('PRAGMA busy_timeout = 5000')
 
 export const db = drizzle({ client: sqlite, schema })
 export { sqlite }
+
+// Auto-migrate on startup
+migrate(db, { migrationsFolder: join(process.cwd(), 'drizzle') })
