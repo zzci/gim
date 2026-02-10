@@ -1,7 +1,8 @@
 import type { MatrixEvent } from '@/modules/message/service'
 import { and, count, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { accounts, currentRoomState, eventsState, pushNotifications, roomMembers } from '@/db/schema'
+import { accounts, currentRoomState, eventsState, pushers, pushNotifications, roomMembers } from '@/db/schema'
+import { sendPushNotification } from '@/modules/notification/pushGateway'
 import { TtlCache } from '@/utils/ttlCache'
 
 interface PushRule {
@@ -496,5 +497,27 @@ export function recordNotifications(event: MatrixEvent, roomId: string): void {
 
   if (rows.length > 0) {
     db.insert(pushNotifications).values(rows).run()
+
+    // Fire-and-forget push notifications to registered pushers
+    const notifiedUserIds = [...new Set(rows.map(r => r.userId))]
+    for (const userId of notifiedUserIds) {
+      const userPushers = db.select().from(pushers).where(and(eq(pushers.userId, userId), eq(pushers.enabled, true))).all()
+
+      for (const pusher of userPushers) {
+        sendPushNotification(pusher, {
+          event_id: event.event_id,
+          room_id: roomId,
+          type: event.type,
+          sender: event.sender,
+          content: event.content,
+          prio: 'high',
+          devices: [{
+            app_id: pusher.appId,
+            pushkey: pusher.pushkey,
+            data: pusher.data as Record<string, unknown>,
+          }],
+        }).catch(err => logger.error('push_failed', { error: err instanceof Error ? err.message : String(err) }))
+      }
+    }
   }
 }

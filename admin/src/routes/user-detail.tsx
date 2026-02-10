@@ -32,6 +32,7 @@ export function UserDetailPage() {
   const { userId } = useParams({ from: '/users/$userId' })
   const queryClient = useQueryClient()
   const [showDeactivateDialog, setShowDeactivateDialog] = useState(false)
+  const [deleteDeviceId, setDeleteDeviceId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['user', userId],
@@ -54,6 +55,13 @@ export function UserDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user', userId] }),
   })
 
+  const deleteDevice = useMutation({
+    mutationFn: (deviceId: string) => api(`/devices/${encodeURIComponent(userId)}/${encodeURIComponent(deviceId)}`, {
+      method: 'DELETE',
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user', userId] }),
+  })
+
   if (isLoading)
     return <div className="text-gray-400">Loading...</div>
   if (error) {
@@ -68,6 +76,10 @@ export function UserDetailPage() {
     return null
 
   const { user, profile, devices, rooms } = data
+
+  function handleDeleteDevice(deviceId: string) {
+    setDeleteDeviceId(deviceId)
+  }
 
   return (
     <div>
@@ -118,6 +130,21 @@ export function UserDetailPage() {
         variant={user.isDeactivated ? 'warning' : 'danger'}
       />
 
+      <ConfirmDialog
+        open={deleteDeviceId !== null}
+        onConfirm={() => {
+          if (deleteDeviceId) {
+            deleteDevice.mutate(deleteDeviceId)
+          }
+          setDeleteDeviceId(null)
+        }}
+        onCancel={() => setDeleteDeviceId(null)}
+        title="Delete device"
+        description={`Delete device ${deleteDeviceId}? This will remove all keys and sessions.`}
+        confirmLabel="Delete"
+        variant="danger"
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">
           <h3 className="text-sm font-medium text-gray-400 mb-3">Info</h3>
@@ -154,9 +181,18 @@ export function UserDetailPage() {
             : (
                 <div className="space-y-2">
                   {devices.map(d => (
-                    <div key={d.deviceId} className="text-sm p-2 bg-gray-800/50 rounded">
-                      <p className="text-gray-200 font-mono text-xs">{d.deviceId}</p>
-                      {d.displayName && <p className="text-gray-400 text-xs mt-0.5">{d.displayName}</p>}
+                    <div key={d.deviceId} className="flex items-center justify-between text-sm p-2 bg-gray-800/50 rounded">
+                      <div>
+                        <p className="text-gray-200 font-mono text-xs">{d.deviceId}</p>
+                        {d.displayName && <p className="text-gray-400 text-xs mt-0.5">{d.displayName}</p>}
+                      </div>
+                      <button
+                        onClick={() => handleDeleteDevice(d.deviceId)}
+                        disabled={deleteDevice.isPending}
+                        className="px-2 py-1 text-xs bg-red-600/20 border border-red-500/30 text-red-400 rounded hover:bg-red-600/30 disabled:opacity-50 transition-colors"
+                      >
+                        Delete
+                      </button>
                     </div>
                   ))}
                 </div>

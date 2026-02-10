@@ -73,6 +73,7 @@ versionsRoute.get('/', (c) => {
       'org.matrix.msc2965': true, // OIDC-native auth
       'org.matrix.msc3861': true, // delegated OIDC
       'org.matrix.msc3814': true, // dehydrated devices v2
+      'org.matrix.simplified_msc3575': true, // sliding sync
     },
   })
 })

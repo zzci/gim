@@ -149,6 +149,33 @@ export class MatrixClient {
     return this.request('PUT', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/redact/${encodeURIComponent(eventId)}/${txnId}`, { reason })
   }
 
+  // ---- Threads ----
+
+  async sendThreadReply(roomId: string, threadRootId: string, txnId: string, body: string) {
+    return this.sendMessage(roomId, txnId, {
+      'msgtype': 'm.text',
+      'body': body,
+      'm.relates_to': {
+        'rel_type': 'm.thread',
+        'event_id': threadRootId,
+        'is_falling_back': true,
+        'm.in_reply_to': { event_id: threadRootId },
+      },
+    })
+  }
+
+  async getThreadRoots(roomId: string, params: { include?: string, limit?: number, from?: string } = {}) {
+    const qs = new URLSearchParams()
+    if (params.include)
+      qs.set('include', params.include)
+    if (params.limit !== undefined)
+      qs.set('limit', String(params.limit))
+    if (params.from)
+      qs.set('from', params.from)
+    const q = qs.toString()
+    return this.request('GET', `/_matrix/client/v1/rooms/${encodeURIComponent(roomId)}/threads${q ? `?${q}` : ''}`)
+  }
+
   // ---- State ----
 
   async sendStateEvent(roomId: string, eventType: string, stateKey: string, content: Record<string, unknown>) {
@@ -330,5 +357,17 @@ export class MatrixClient {
 
   async adminTokens() {
     return this.request('GET', '/admin/api/tokens')
+  }
+
+  // ---- Sliding Sync (MSC3575) ----
+
+  async slidingSync(body: Record<string, unknown>, params: { timeout?: number, pos?: string } = {}) {
+    const qs = new URLSearchParams()
+    if (params.timeout !== undefined)
+      qs.set('timeout', String(params.timeout))
+    if (params.pos)
+      qs.set('pos', params.pos)
+    const q = qs.toString()
+    return this.request('POST', `/_matrix/client/unstable/org.matrix.simplified_msc3575/sync${q ? `?${q}` : ''}`, body)
   }
 }

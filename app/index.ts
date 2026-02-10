@@ -11,12 +11,15 @@ import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRo
 
 import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRoute, mediaThumbnailRoute, mediaUploadRoute } from '@/modules/media/routes'
 import { messageRouter } from '@/modules/message/routes'
+import { pusherRoute } from '@/modules/notification/pusherRoutes'
 import { notificationsRoute } from '@/modules/notification/routes'
 import { presenceRoute } from '@/modules/presence/routes'
 import { createRoomRoute, joinedRoomsRoute, joinRoute, roomAliasRoute, roomMembershipRouter, roomSummaryRoute } from '@/modules/room/routes'
 // Module imports
 import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRoute } from '@/modules/server/routes'
 import { syncRoute } from '@/modules/sync/routes'
+import { slidingSyncRoute } from '@/modules/sync/slidingRoutes'
+import { threadRoute } from '@/modules/thread/routes'
 import { oauthApp } from '@/oauth/provider'
 import { formatPrometheusMetrics } from '@/shared/metrics'
 import { rateLimitMiddleware } from '@/shared/middleware/rateLimit'
@@ -101,9 +104,14 @@ async function run() {
       'POST /_matrix/client/v3/rooms/:roomId/receipt/:receiptType/:eventId',
       'POST /_matrix/client/v3/rooms/:roomId/read_markers',
       'GET/PUT /_matrix/client/v3/rooms/:roomId/account_data/:type',
+      // Threads
+      'GET /_matrix/client/v1/rooms/:roomId/threads',
       // Notifications & Sync
       'GET /_matrix/client/v3/notifications',
+      'GET /_matrix/client/v3/pushers',
+      'POST /_matrix/client/v3/pushers/set',
       'GET /_matrix/client/v3/sync',
+      'POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync',
       // Presence
       'GET/PUT /_matrix/client/v3/presence/:userId/status',
       // E2EE
@@ -210,8 +218,11 @@ async function run() {
   app.route('/_matrix/client/v1/summary/rooms', roomSummaryRoute)
   app.route('/_matrix/client/v3/rooms', roomMembershipRouter)
   app.route('/_matrix/client/v3/rooms', messageRouter)
+  app.route('/_matrix/client/v1/rooms', threadRoute)
   app.route('/_matrix/client/v3/notifications', notificationsRoute)
+  app.route('/_matrix/client/v3/pushers', pusherRoute)
   app.route('/_matrix/client/v3/sync', syncRoute)
+  app.route('/_matrix/client/unstable/org.matrix.simplified_msc3575', slidingSyncRoute)
 
   /* presence */
   app.route('/_matrix/client/v3/presence', presenceRoute)

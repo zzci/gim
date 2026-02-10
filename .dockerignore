@@ -1,0 +1,12 @@
+node_modules
+admin/node_modules
+data/
+dist/
+admin/dist/
+.env
+.env.*
+.git
+*.db
+*.db-wal
+*.db-shm
+.DS_Store

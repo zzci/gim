@@ -256,6 +256,24 @@ export const pushNotifications = sqliteTable('push_notifications', {
   index('push_notifications_user_id_idx').on(table.userId),
 ])
 
+export const pushers = sqliteTable('pushers', {
+  id: text('id').primaryKey().$defaultFn(generateUlid),
+  userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
+  deviceId: text('device_id'),
+  kind: text('kind').notNull(),
+  appId: text('app_id').notNull(),
+  pushkey: text('pushkey').notNull(),
+  appDisplayName: text('app_display_name'),
+  deviceDisplayName: text('device_display_name'),
+  profileTag: text('profile_tag'),
+  lang: text('lang'),
+  data: text('data', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, table => [
+  index('pushers_user_id_idx').on(table.userId),
+])
+
 export const pushRules = sqliteTable('push_rules', {
   id: text('id').primaryKey().$defaultFn(generateUlid),
   userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),

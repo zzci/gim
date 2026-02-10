@@ -32,7 +32,7 @@
 | M2 | ~~notifyUser() 在循环中逐个调用~~ | e2ee/routes.ts, message/service.ts | ~~通知风暴~~ | ✅ Phase 1 (Set 去重) |
 | M3 | ~~管理面板 Token 存 localStorage~~ | admin/src/api.ts, admin/middleware.ts | ~~XSS 可窃取管理权限~~ | ✅ Phase 3 (httpOnly cookie) |
 | M4 | ~~媒体文件名清理不完整~~ | media/routes.ts | ~~null 字节/路径遍历风险~~ | ✅ Phase 1 |
-| M5 | 测试覆盖不足 — 无 E2EE 验证流程测试、无媒体测试、无管理 API 测试 | tests/ | 回归风险 | ⏳ Phase 4 |
+| M5 | ~~测试覆盖不足 — 无 E2EE 验证流程测试、无媒体测试、无管理 API 测试~~ | tests/ | ~~回归风险~~ | ✅ Phase 4 |
 | M6 | ~~presence 变更不通知共享房间成员~~ | presence/service.ts | ~~在线状态延迟感知~~ | ✅ Phase 3 |
 | M7 | ~~createRoomBody 使用 passthrough()~~ | shared/validation.ts | ~~允许任意额外字段~~ | ✅ Phase 1 |
 
@@ -150,7 +150,7 @@ auth middleware 添加 5 分钟节流，仅在超过阈值时才更新 lastSeenA
 #### 3.5 待完成
 
 ```
-- 容器化（Dockerfile + docker-compose.yml）
+- ✅ 容器化（Dockerfile + docker-compose.yml）→ Phase 4 完成
 - Notifier → Redis Pub/Sub（需要多进程部署时实现）
 - 限流器 → Redis（需要多进程部署时实现）
 - 结构化日志增强 (trace_id)
@@ -158,51 +158,47 @@ auth middleware 添加 5 分钟节流，仅在超过阈值时才更新 lastSeenA
 
 ---
 
-### Phase 4: 功能完善（中期至长期，4-8 个月）
+### Phase 4: 功能完善 ✅ 已完成
 
-**目标：** 补全 Matrix 协议覆盖，增强管理能力
+**目标：** 补全 Matrix 协议覆盖，增强管理能力，Docker 支持
 
-#### 4.1 协议功能补全
+#### 4.1 容器化 ✅
 
-| 功能 | MSC | 优先级 | 说明 |
+- 多阶段 Dockerfile (oven/bun:latest) — 构建服务器 + 管理面板
+- docker-compose.yml — 端口映射、数据卷、健康检查
+- .dockerignore — 排除开发文件
+
+#### 4.2 协议功能补全
+
+| 功能 | MSC | 优先级 | 状态 |
 |------|-----|--------|------|
-| Sliding Sync | MSC3575 | 高 | 大幅改善客户端体验 |
-| 线程消息 | MSC3440 | 高 | 现代 IM 必需 |
-| 密钥备份 | MSC2697 | 中 | E2EE 设备恢复 |
-| 缩略图生成 | — | 中 | 媒体体验优化 |
-| 推送网关 | — | 中 | 实际推送通知能力 |
-| URL 预览 | — | 低 | 当前是 stub |
-| 密码登录 | — | 低 | 替代 SSO 的登录方式 |
+| Sliding Sync | MSC3575 | 高 | ✅ 已实现 — 房间列表排序、窗口范围、增量同步、扩展 (to_device, e2ee, account_data) |
+| 线程消息 | MSC3440 | 高 | ✅ 已实现 — 线程回复、线程根查询、线程摘要 (unsigned.m.relations.m.thread) |
+| 推送网关 | — | 中 | ✅ 已实现 — pushers 表、GET/POST pushers、HTTP 推送网关 |
+| 密钥备份 | MSC2697 | 中 | ⏭️ 跳过 (SSO only) |
+| 缩略图生成 | — | 中 | ⏭️ 跳过 (E2EE — 服务端无法解密媒体) |
+| URL 预览 | — | 低 | ⏭️ 跳过 (E2EE — 服务端无法读取消息内容) |
+| 密码登录 | — | 低 | ⏭️ 跳过 (SSO only) |
 
-#### 4.2 管理面板增强
+#### 4.3 管理面板增强 ✅
 
-```
-Phase 4a: 基础增强
-  - 用户创建/密码重置
-  - 房间状态查看/编辑
-  - 设备管理（登出/删除）
-  - 错误提示优化
+- 房间状态查看/编辑 — GET/PUT /api/rooms/:roomId/state 端点 + 前端状态查看器/编辑器
+- 设备管理 — DELETE /api/devices/:userId/:deviceId (清理所有关联数据) + 前端删除按钮
+- 数据可视化 — GET /api/stats/history (30 天趋势) + SVG 折线图 (用户/房间/媒体/消息)
 
-Phase 4b: 高级功能
-  - 数据可视化 (活跃用户趋势、消息量图表)
-  - 批量操作
-```
+#### 4.4 测试覆盖提升 [M5] ✅
 
-#### 4.3 测试覆盖提升 [M5]
+新增 8 个测试文件:
+- `tests/media.test.ts` — 媒体上传/下载/配置/异步上传/文件名
+- `tests/admin.test.ts` — 统计/用户/房间/媒体/Token/审计日志/权限
+- `tests/presence.test.ts` — 在线状态设置/获取/权限/同步
+- `tests/e2ee-ordering.test.ts` — To-device 消息排序/清理/设备列表变更
+- `tests/sync-edge.test.ts` — 短超时/长轮询唤醒/初始同步
+- `tests/concurrent.test.ts` — 并行消息/房间创建/同步并发
+- `tests/threads.test.ts` — 线程回复/根查询/摘要/分页
+- `tests/sliding-sync.test.ts` — 房间列表/排序/过滤/增量同步/扩展
 
-```
-补充测试:
-  - E2EE 完整验证流程 (SAS + 交叉签名)
-  - To-device 消息排序
-  - 设备列表变更追踪
-  - 媒体上传/下载/配额
-  - 管理 API 端点
-  - 在线状态
-  - 长轮询超时场景
-  - 并发操作竞态测试
-```
-
-#### 4.4 遗留安全修复
+#### 4.5 遗留安全修复
 
 ```
 ✅ 已在 Phase 3 完成:
@@ -267,14 +263,16 @@ Phase 4b: 高级功能
 |------|--------|--------|
 | 房间管理 | ✅ | |
 | 消息 | ✅ | |
-| 同步 | ✅ | 长轮询超时 |
+| 同步 | ✅ | |
+| 同步边缘场景 | ✅ Phase 4 | |
 | E2EE 基础 | ✅ | 验证流程、密钥轮换 |
-| 媒体 | | ❌ 完全缺失 |
-| 管理 API | | ❌ 完全缺失 |
-| 在线状态 | | ❌ 完全缺失 |
-| 设备列表变更 | | ❌ 完全缺失 |
-| To-device 排序 | | ❌ 完全缺失 |
-| 并发竞态 | | ❌ 完全缺失 |
+| E2EE 排序 | ✅ Phase 4 | |
+| 媒体 | ✅ Phase 4 | |
+| 管理 API | ✅ Phase 4 | |
+| 在线状态 | ✅ Phase 4 | |
+| 线程消息 | ✅ Phase 4 | |
+| Sliding Sync | ✅ Phase 4 | |
+| 并发竞态 | ✅ Phase 4 | |
 
 ---
 
@@ -284,7 +282,6 @@ Phase 4b: 高级功能
 v0.1.1  ─── ✅ 索引补全 + 事务修复 + Cron 错误处理 + 外键 + 写入节流
 v0.1.2  ─── ✅ N+1 查询消除 + UNION ALL + 批量同步 + 缓存层 + 配额原子化
 v0.2.0  ─── ✅ 状态外部化 + Prometheus + 安全修复 (M1, M3, M6) + 管理面板增强 (L2-L4)
-v0.3.0  ─── Sliding Sync + 线程消息 + Docker 支持
-v0.4.0  ─── 测试覆盖 [M5] + 管理面板高级功能
+v0.3.0  ─── ✅ Sliding Sync + 线程消息 + Docker 支持 + 推送网关 + 管理面板增强 + 测试覆盖
 v1.0.0  ─── 生产就绪（PG 可选、完整测试、运维工具）
 ```

@@ -101,22 +101,88 @@ export function formatEventListWithRelations(events: any[]) {
     }
   }
 
-  // Apply edits to formatted results
+  // Batch query: find thread reply counts and latest reply for events that are thread roots
+  const threadMap = new Map<string, { count: number, latest_event: any }>()
+
+  for (const [roomId, targetIds] of eventIdsByRoom) {
+    const placeholders = targetIds.map(() => '?').join(',')
+
+    // Get reply counts per thread root
+    const countQuery = `
+      SELECT json_extract(content, '$."m.relates_to".event_id') as root_id, COUNT(*) as cnt
+      FROM events_timeline
+      WHERE room_id = ?
+        AND json_extract(content, '$."m.relates_to".rel_type') = 'm.thread'
+        AND json_extract(content, '$."m.relates_to".event_id') IN (${placeholders})
+      GROUP BY root_id
+    `
+    const countRows = sqlite.prepare(countQuery).all(roomId, ...targetIds) as any[]
+
+    for (const row of countRows) {
+      const rootId = row.root_id as string
+      if (!rootId)
+        continue
+
+      // Get latest reply for this thread root
+      const latestQuery = `
+        SELECT id, room_id, sender, type, content, origin_server_ts, unsigned
+        FROM events_timeline
+        WHERE room_id = ?
+          AND json_extract(content, '$."m.relates_to".rel_type') = 'm.thread'
+          AND json_extract(content, '$."m.relates_to".event_id') = ?
+        ORDER BY id DESC
+        LIMIT 1
+      `
+      const latestRow = sqlite.prepare(latestQuery).get(roomId, rootId) as any
+      let latestEvent = null
+      if (latestRow) {
+        const content = typeof latestRow.content === 'string' ? JSON.parse(latestRow.content) : latestRow.content
+        const unsigned = latestRow.unsigned ? (typeof latestRow.unsigned === 'string' ? JSON.parse(latestRow.unsigned) : latestRow.unsigned) : null
+        latestEvent = formatEvent({
+          id: latestRow.id,
+          roomId: latestRow.room_id,
+          sender: latestRow.sender,
+          type: latestRow.type,
+          content,
+          originServerTs: latestRow.origin_server_ts,
+          unsigned,
+          stateKey: null,
+        })
+      }
+
+      threadMap.set(rootId, { count: row.cnt, latest_event: latestEvent })
+    }
+  }
+
+  // Apply edits and thread summaries to formatted results
   for (const idx of timelineIndices) {
     const e = events[idx]!
     const result = results[idx]!
     const latestEdit = editMap.get(`$${e.id}`)
+    const threadInfo = threadMap.get(`$${e.id}`)
+
+    const relations: Record<string, any> = {}
 
     if (latestEdit) {
       const newContent = latestEdit.content['m.new_content'] as Record<string, unknown> | undefined
       if (newContent) {
         result.content = newContent
       }
+      relations['m.replace'] = formatEvent(latestEdit)
+    }
+
+    if (threadInfo) {
+      relations['m.thread'] = {
+        count: threadInfo.count,
+        latest_event: threadInfo.latest_event,
+        current_user_participated: false,
+      }
+    }
+
+    if (Object.keys(relations).length > 0) {
       result.unsigned = {
         ...result.unsigned,
-        'm.relations': {
-          'm.replace': formatEvent(latestEdit),
-        },
+        'm.relations': relations,
       }
     }
   }
