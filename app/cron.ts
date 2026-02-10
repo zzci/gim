@@ -68,14 +68,52 @@ async function processMediaDeletions() {
 
 export function startCron() {
   // Run cleanup tasks immediately on startup
-  cleanupOrphanedE2eeKeys()
-  cleanupExpiredTokens()
+  try {
+    cleanupOrphanedE2eeKeys()
+  }
+  catch (err) {
+    logger.error('Startup cleanupOrphanedE2eeKeys failed', { error: String(err) })
+  }
+  try {
+    cleanupExpiredTokens()
+  }
+  catch (err) {
+    logger.error('Startup cleanupExpiredTokens failed', { error: String(err) })
+  }
 
   const jobs = [
-    new Cron('0 */6 * * *', cleanupOrphanedE2eeKeys),
-    new Cron('0 */6 * * *', cleanupExpiredTokens),
-    new Cron('*/5 * * * *', () => { processMediaDeletions().catch(() => {}) }),
-    new Cron('* * * * *', expirePresence),
+    new Cron('0 */6 * * *', () => {
+      try {
+        cleanupOrphanedE2eeKeys()
+      }
+      catch (err) {
+        logger.error('Cron cleanupOrphanedE2eeKeys failed', { error: String(err) })
+      }
+    }),
+    new Cron('0 */6 * * *', () => {
+      try {
+        cleanupExpiredTokens()
+      }
+      catch (err) {
+        logger.error('Cron cleanupExpiredTokens failed', { error: String(err) })
+      }
+    }),
+    new Cron('*/5 * * * *', async () => {
+      try {
+        await processMediaDeletions()
+      }
+      catch (err) {
+        logger.error('Cron processMediaDeletions failed', { error: String(err) })
+      }
+    }),
+    new Cron('* * * * *', () => {
+      try {
+        expirePresence()
+      }
+      catch (err) {
+        logger.error('Cron expirePresence failed', { error: String(err) })
+      }
+    }),
   ]
 
   logger.info('cron_started', { tasks: jobs.length })

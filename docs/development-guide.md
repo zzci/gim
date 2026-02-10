@@ -130,7 +130,7 @@ import { db } from '../../db'
 所有错误响应使用 Matrix 标准格式：
 
 ```typescript
-import { matrixError, matrixNotFound, matrixForbidden } from '@/shared/middleware/errors'
+import { matrixError, matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 
 // 通用错误
 return matrixError(c, 'M_INVALID_PARAM', '参数无效')
@@ -170,14 +170,14 @@ return matrixForbidden(c, '无权限')
 5. **注册路由** — 在 `app/index.ts` 中挂载
 
 ```typescript
+import type { AuthEnv } from '@/shared/middleware/auth'
 // app/modules/example/routes.ts
 import { Hono } from 'hono'
-import type { AuthEnv } from '@/shared/middleware/auth'
+import { z } from 'zod'
+import { db } from '@/db'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError, matrixNotFound } from '@/shared/middleware/errors'
 import { validate } from '@/shared/validation'
-import { z } from 'zod'
-import { db } from '@/db'
 
 const app = new Hono<AuthEnv>()
 
@@ -196,7 +196,8 @@ const createSchema = z.object({
 app.post('/create', async (c) => {
   const body = await c.req.json()
   const v = validate(c, createSchema, body)
-  if (!v.success) return v.response
+  if (!v.success)
+    return v.response
 
   const { userId } = c.get('auth')
   // 业务逻辑...
@@ -219,12 +220,11 @@ export { app as exampleRoutes }
 export const reactions = sqliteTable('reactions', {
   id: text('id').primaryKey(),
   eventId: text('event_id').notNull(),
-  userId: text('user_id').notNull()
-    .references(() => accounts.id),
-  key: text('key').notNull(),  // emoji 或自定义 reaction
+  userId: text('user_id').notNull().references(() => accounts.id),
+  key: text('key').notNull(), // emoji 或自定义 reaction
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .$defaultFn(() => new Date()),
-}, (table) => [
+}, table => [
   index('idx_reactions_event').on(table.eventId),
   index('idx_reactions_user').on(table.userId),
 ])
@@ -313,7 +313,7 @@ bun test --grep "should create room"
 
 ```typescript
 // tests/example.test.ts
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { getAlice, getBob, txnId } from './helpers'
 
 describe('Example Feature', () => {

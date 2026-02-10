@@ -25,6 +25,15 @@ function sanitizeFileName(name: string): string {
   return name.replace(/["\\\n\r]/g, '_')
 }
 
+function sanitizeUploadFileName(name: string): string | null {
+  let sanitized = name
+  sanitized = sanitized.replace(/\0/g, '')
+  sanitized = sanitized.replace(/[/\\]/g, '_')
+  sanitized = sanitized.replace(/^\.+/, '')
+  sanitized = sanitized.slice(0, 255)
+  return sanitized || null
+}
+
 // Per-user upload rate limiter
 const uploadWindows = new Map<string, { count: number, resetAt: number }>()
 
@@ -81,7 +90,8 @@ mediaUploadRoute.use('/*', authMiddleware)
 mediaUploadRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const contentType = c.req.header('content-type') || 'application/octet-stream'
-  const fileName = c.req.query('filename') || null
+  const rawFileName = c.req.query('filename') || null
+  const fileName = rawFileName ? sanitizeUploadFileName(rawFileName) : null
 
   if (!checkUploadRateLimit(auth.userId))
     return matrixError(c, 'M_LIMIT_EXCEEDED', `Upload rate limit exceeded (${mediaUploadsPerHour}/hour)`, { retry_after_ms: 60000 })
@@ -125,7 +135,8 @@ mediaUploadRoute.put('/:server/:mediaId', async (c) => {
   const auth = c.get('auth')
   const mediaId = c.req.param('mediaId')
   const contentType = c.req.header('content-type') || 'application/octet-stream'
-  const fileName = c.req.query('filename') || null
+  const rawFileName = c.req.query('filename') || null
+  const fileName = rawFileName ? sanitizeUploadFileName(rawFileName) : null
 
   if (!checkUploadRateLimit(auth.userId))
     return matrixError(c, 'M_LIMIT_EXCEEDED', `Upload rate limit exceeded (${mediaUploadsPerHour}/hour)`, { retry_after_ms: 60000 })

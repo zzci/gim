@@ -17,7 +17,7 @@ export const accounts = sqliteTable('accounts', {
 
 export const accountTokens = sqliteTable('account_tokens', {
   token: text('token').primaryKey(),
-  userId: text('user_id').notNull(),
+  userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
   deviceId: text('device_id').notNull(),
   name: text('name').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
@@ -222,7 +222,7 @@ export const e2eeDehydratedDevices = sqliteTable('e2ee_dehydrated_devices', {
 
 export const media = sqliteTable('media', {
   id: text('id').primaryKey(), // media ID portion of mxc://
-  userId: text('user_id').notNull(),
+  userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
   contentType: text('content_type').notNull(),
   fileName: text('file_name'),
   fileSize: integer('file_size').notNull(),

@@ -161,27 +161,49 @@ logoutRoute.post('/', async (c) => {
 logoutRoute.post('/all', async (c) => {
   const auth = c.get('auth')
 
-  const userDevices = db.select({ id: devices.id }).from(devices).where(eq(devices.userId, auth.userId)).all()
+  const deviceCount = db.transaction((tx) => {
+    const userDevices = tx.select({ id: devices.id }).from(devices).where(eq(devices.userId, auth.userId)).all()
 
-  for (const d of userDevices) {
-    deleteDeviceKeys(auth.userId, d.id)
-  }
+    for (const d of userDevices) {
+      tx.delete(e2eeDeviceKeys).where(and(
+        eq(e2eeDeviceKeys.userId, auth.userId),
+        eq(e2eeDeviceKeys.deviceId, d.id),
+      )).run()
 
-  const localpart = auth.userId.split(':')[0]!.slice(1)
-  const userTokenRows = db.select({ grantId: oauthTokens.grantId })
-    .from(oauthTokens)
-    .where(eq(oauthTokens.accountId, localpart))
-    .all()
+      tx.delete(e2eeOneTimeKeys).where(and(
+        eq(e2eeOneTimeKeys.userId, auth.userId),
+        eq(e2eeOneTimeKeys.deviceId, d.id),
+      )).run()
 
-  const grantIds = new Set(userTokenRows.map(r => r.grantId).filter(Boolean) as string[])
-  for (const grantId of grantIds) {
-    db.delete(oauthTokens).where(eq(oauthTokens.grantId, grantId)).run()
-  }
-  db.delete(oauthTokens).where(eq(oauthTokens.accountId, localpart)).run()
+      tx.delete(e2eeFallbackKeys).where(and(
+        eq(e2eeFallbackKeys.userId, auth.userId),
+        eq(e2eeFallbackKeys.deviceId, d.id),
+      )).run()
 
-  await db.delete(devices).where(eq(devices.userId, auth.userId))
+      tx.delete(e2eeToDeviceMessages).where(and(
+        eq(e2eeToDeviceMessages.userId, auth.userId),
+        eq(e2eeToDeviceMessages.deviceId, d.id),
+      )).run()
+    }
 
-  logger.info('logout_all', { userId: auth.userId, deviceCount: userDevices.length })
+    const localpart = auth.userId.split(':')[0]!.slice(1)
+    const userTokenRows = tx.select({ grantId: oauthTokens.grantId })
+      .from(oauthTokens)
+      .where(eq(oauthTokens.accountId, localpart))
+      .all()
+
+    const grantIds = new Set(userTokenRows.map(r => r.grantId).filter(Boolean) as string[])
+    for (const grantId of grantIds) {
+      tx.delete(oauthTokens).where(eq(oauthTokens.grantId, grantId)).run()
+    }
+    tx.delete(oauthTokens).where(eq(oauthTokens.accountId, localpart)).run()
+
+    tx.delete(devices).where(eq(devices.userId, auth.userId)).run()
+
+    return userDevices.length
+  })
+
+  logger.info('logout_all', { userId: auth.userId, deviceCount })
 
   return c.json({})
 })

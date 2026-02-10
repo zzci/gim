@@ -337,25 +337,40 @@ deactivateRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const userId = auth.userId
 
-  // Mark user as deactivated
-  db.update(accounts).set({ isDeactivated: true }).where(eq(accounts.id, userId)).run()
+  // Wrap direct DB operations in a transaction
+  const joinedRooms = db.transaction((tx) => {
+    // Mark user as deactivated
+    tx.update(accounts).set({ isDeactivated: true }).where(eq(accounts.id, userId)).run()
 
-  // Revoke all OAuth tokens
-  const localpart = userId.split(':')[0]?.slice(1) || ''
-  db.delete(oauthTokens).where(eq(oauthTokens.accountId, localpart)).run()
+    // Revoke all OAuth tokens
+    const localpart = userId.split(':')[0]?.slice(1) || ''
+    tx.delete(oauthTokens).where(eq(oauthTokens.accountId, localpart)).run()
 
-  // Delete all user tokens
-  db.delete(accountTokens).where(eq(accountTokens.userId, userId)).run()
+    // Delete all user tokens
+    tx.delete(accountTokens).where(eq(accountTokens.userId, userId)).run()
 
-  // Leave all joined rooms
-  const joinedRooms = db.select({ roomId: roomMembers.roomId })
-    .from(roomMembers)
-    .where(and(
-      eq(roomMembers.userId, userId),
-      eq(roomMembers.membership, 'join'),
-    ))
-    .all()
+    // Get joined rooms before cleanup
+    const rooms = tx.select({ roomId: roomMembers.roomId })
+      .from(roomMembers)
+      .where(and(
+        eq(roomMembers.userId, userId),
+        eq(roomMembers.membership, 'join'),
+      ))
+      .all()
 
+    // Clean up E2EE keys
+    tx.delete(e2eeDeviceKeys).where(eq(e2eeDeviceKeys.userId, userId)).run()
+    tx.delete(e2eeOneTimeKeys).where(eq(e2eeOneTimeKeys.userId, userId)).run()
+    tx.delete(e2eeFallbackKeys).where(eq(e2eeFallbackKeys.userId, userId)).run()
+    tx.delete(e2eeCrossSigningKeys).where(eq(e2eeCrossSigningKeys.userId, userId)).run()
+
+    // Delete all devices
+    tx.delete(devices).where(eq(devices.userId, userId)).run()
+
+    return rooms
+  })
+
+  // Leave all joined rooms outside transaction (createEvent has its own transactions)
   for (const { roomId } of joinedRooms) {
     createEvent({
       roomId,
@@ -365,15 +380,6 @@ deactivateRoute.post('/', async (c) => {
       content: { membership: 'leave' },
     })
   }
-
-  // Clean up E2EE keys
-  db.delete(e2eeDeviceKeys).where(eq(e2eeDeviceKeys.userId, userId)).run()
-  db.delete(e2eeOneTimeKeys).where(eq(e2eeOneTimeKeys.userId, userId)).run()
-  db.delete(e2eeFallbackKeys).where(eq(e2eeFallbackKeys.userId, userId)).run()
-  db.delete(e2eeCrossSigningKeys).where(eq(e2eeCrossSigningKeys.userId, userId)).run()
-
-  // Delete all devices
-  db.delete(devices).where(eq(devices.userId, userId)).run()
 
   return c.json({ id_server_unbind_result: 'no-support' })
 })

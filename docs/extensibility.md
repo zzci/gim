@@ -134,10 +134,13 @@ Drizzle ORM 同时支持 SQLite 和 PostgreSQL，迁移成本较低：
 ### 3.1 添加新模块
 
 ```typescript
+import type { AuthEnv } from '@/shared/middleware/auth'
 // 1. 创建模块文件
 // app/modules/newfeature/routes.ts
 import { Hono } from 'hono'
-import type { AuthEnv } from '@/shared/middleware/auth'
+
+// 2. 在 app/index.ts 注册路由
+import { newFeatureRoutes } from '@/modules/newfeature/routes'
 
 const app = new Hono<AuthEnv>()
 
@@ -148,9 +151,6 @@ app.get('/endpoint', async (c) => {
 })
 
 export { app as newFeatureRoutes }
-
-// 2. 在 app/index.ts 注册路由
-import { newFeatureRoutes } from '@/modules/newfeature/routes'
 matrixApi.route('/newfeature', newFeatureRoutes)
 ```
 
@@ -158,7 +158,7 @@ matrixApi.route('/newfeature', newFeatureRoutes)
 
 ```typescript
 // 1. 在 app/db/schema.ts 添加表定义
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const newTable = sqliteTable('new_table', {
   id: text('id').primaryKey(),
@@ -203,7 +203,8 @@ export function startCron() {
 // 在 POST /login 处理器中添加新的认证类型
 if (body.type === 'm.login.password') {
   // 密码认证逻辑
-} else if (body.type === 'm.login.token') {
+}
+else if (body.type === 'm.login.token') {
   // 现有 token 认证逻辑
 }
 ```

@@ -31,7 +31,7 @@ PRAGMA busy_timeout = 5000;   -- 锁等待超时 5 秒
 
 ```typescript
 // app/db/index.ts
-const sqlite = new Database(dbPath)  // 单一连接实例（单例）
+const sqlite = new Database(dbPath) // 单一连接实例（单例）
 const db = drizzle(sqlite, { schema })
 ```
 

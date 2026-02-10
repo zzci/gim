@@ -196,6 +196,7 @@ keysUploadRoute.post('/', async (c) => {
         ))
         .all()
 
+      const notified = new Set<string>()
       for (const room of sharedRooms) {
         const members = db.select({ userId: roomMembers.userId })
           .from(roomMembers)
@@ -205,7 +206,8 @@ keysUploadRoute.post('/', async (c) => {
           ))
           .all()
         for (const m of members) {
-          if (m.userId !== auth.userId) {
+          if (m.userId !== auth.userId && !notified.has(m.userId)) {
+            notified.add(m.userId)
             notifyUser(m.userId)
           }
         }

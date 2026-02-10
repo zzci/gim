@@ -26,7 +26,7 @@ export const createRoomBody = z.object({
   is_direct: z.boolean().optional(),
   initial_state: z.array(z.record(z.string(), z.unknown())).optional(),
   power_level_content_override: z.record(z.string(), z.unknown()).optional(),
-}).passthrough()
+})
 
 export const membershipBody = z.object({
   user_id: matrixUserId,

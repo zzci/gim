@@ -137,8 +137,12 @@ async function notifyRoomMembers(roomId: string) {
     ))
     .all()
 
+  const notified = new Set<string>()
   for (const member of members) {
-    notifyUser(member.userId)
+    if (!notified.has(member.userId)) {
+      notified.add(member.userId)
+      notifyUser(member.userId)
+    }
   }
 }
 

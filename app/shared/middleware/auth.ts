@@ -5,6 +5,17 @@ import { db } from '@/db'
 import { accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
 import { matrixError } from './errors'
 
+const deviceLastUpdated = new Map<string, number>()
+const DEVICE_UPDATE_INTERVAL = 5 * 60 * 1000 // 5 minutes
+
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000
+  for (const [key, ts] of deviceLastUpdated) {
+    if (ts < cutoff)
+      deviceLastUpdated.delete(key)
+  }
+}, 10 * 60 * 1000)
+
 export interface AuthContext {
   userId: string
   deviceId: string
@@ -79,18 +90,25 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 
   // Ensure device exists — needed for to-device delivery, keys/query, sync
-  db.insert(devices).values({
-    userId,
-    id: deviceId,
-    ipAddress: c.req.header('x-forwarded-for') || null,
-    lastSeenAt: new Date(),
-  }).onConflictDoUpdate({
-    target: [devices.userId, devices.id],
-    set: {
-      lastSeenAt: new Date(),
+  // Throttle writes to avoid excessive DB updates on every request
+  const deviceKey = `${userId}:${deviceId}`
+  const now = Date.now()
+  const lastUpdated = deviceLastUpdated.get(deviceKey) || 0
+  if (now - lastUpdated > DEVICE_UPDATE_INTERVAL) {
+    db.insert(devices).values({
+      userId,
+      id: deviceId,
       ipAddress: c.req.header('x-forwarded-for') || null,
-    },
-  }).run()
+      lastSeenAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [devices.userId, devices.id],
+      set: {
+        lastSeenAt: new Date(),
+        ipAddress: c.req.header('x-forwarded-for') || null,
+      },
+    }).run()
+    deviceLastUpdated.set(deviceKey, now)
+  }
 
   c.set('auth', { userId, deviceId, isGuest: false } as AuthContext)
   await next()

@@ -70,42 +70,45 @@ deviceRoute.delete('/:deviceId', async (c) => {
   const auth = c.get('auth')
   const deviceId = c.req.param('deviceId')
 
-  // Revoke OIDC tokens for this device
-  const tokenRows = db.select({ grantId: oauthTokens.grantId })
-    .from(oauthTokens)
-    .where(eq(oauthTokens.deviceId, deviceId))
-    .all()
+  db.transaction((tx) => {
+    // Revoke OIDC tokens for this device
+    const tokenRows = tx.select({ grantId: oauthTokens.grantId })
+      .from(oauthTokens)
+      .where(eq(oauthTokens.deviceId, deviceId))
+      .all()
 
-  const grantIds = new Set(tokenRows.map(r => r.grantId).filter(Boolean) as string[])
-  for (const grantId of grantIds) {
-    db.delete(oauthTokens).where(eq(oauthTokens.grantId, grantId)).run()
-  }
-  db.delete(oauthTokens).where(eq(oauthTokens.deviceId, deviceId)).run()
+    const grantIds = new Set(tokenRows.map(r => r.grantId).filter(Boolean) as string[])
+    for (const grantId of grantIds) {
+      tx.delete(oauthTokens).where(eq(oauthTokens.grantId, grantId)).run()
+    }
+    tx.delete(oauthTokens).where(eq(oauthTokens.deviceId, deviceId)).run()
 
-  // Clean up E2EE keys
-  db.delete(e2eeDeviceKeys).where(and(
-    eq(e2eeDeviceKeys.userId, auth.userId),
-    eq(e2eeDeviceKeys.deviceId, deviceId),
-  )).run()
+    // Clean up E2EE keys
+    tx.delete(e2eeDeviceKeys).where(and(
+      eq(e2eeDeviceKeys.userId, auth.userId),
+      eq(e2eeDeviceKeys.deviceId, deviceId),
+    )).run()
 
-  db.delete(e2eeOneTimeKeys).where(and(
-    eq(e2eeOneTimeKeys.userId, auth.userId),
-    eq(e2eeOneTimeKeys.deviceId, deviceId),
-  )).run()
+    tx.delete(e2eeOneTimeKeys).where(and(
+      eq(e2eeOneTimeKeys.userId, auth.userId),
+      eq(e2eeOneTimeKeys.deviceId, deviceId),
+    )).run()
 
-  db.delete(e2eeFallbackKeys).where(and(
-    eq(e2eeFallbackKeys.userId, auth.userId),
-    eq(e2eeFallbackKeys.deviceId, deviceId),
-  )).run()
+    tx.delete(e2eeFallbackKeys).where(and(
+      eq(e2eeFallbackKeys.userId, auth.userId),
+      eq(e2eeFallbackKeys.deviceId, deviceId),
+    )).run()
 
-  db.delete(e2eeToDeviceMessages).where(and(
-    eq(e2eeToDeviceMessages.userId, auth.userId),
-    eq(e2eeToDeviceMessages.deviceId, deviceId),
-  )).run()
+    tx.delete(e2eeToDeviceMessages).where(and(
+      eq(e2eeToDeviceMessages.userId, auth.userId),
+      eq(e2eeToDeviceMessages.deviceId, deviceId),
+    )).run()
 
-  // Delete device record
-  await db.delete(devices)
-    .where(and(eq(devices.userId, auth.userId), eq(devices.id, deviceId)))
+    // Delete device record
+    tx.delete(devices)
+      .where(and(eq(devices.userId, auth.userId), eq(devices.id, deviceId)))
+      .run()
+  })
 
   return c.json({})
 })
