@@ -346,13 +346,25 @@ export function buildSyncResponse(opts: SyncOptions) {
     }
   }
 
-  // Global account data (only for initial sync)
+  // Global account data
   let globalAccountData: any[] = []
+  let maxAccountDataStreamId = ''
   if (sinceId === null) {
     globalAccountData = db.select().from(accountData).where(and(
       eq(accountData.userId, opts.userId),
       eq(accountData.roomId, ''),
     )).all().map(d => ({ type: d.type, content: d.content }))
+  }
+  else {
+    const rows = db.select().from(accountData).where(and(
+      eq(accountData.userId, opts.userId),
+      eq(accountData.roomId, ''),
+      gt(accountData.streamId, sinceId),
+    )).all()
+    globalAccountData = rows.map(d => ({ type: d.type, content: d.content }))
+    if (rows.length > 0) {
+      maxAccountDataStreamId = rows.reduce((max, d) => d.streamId > max ? d.streamId : max, '')
+    }
   }
 
   // Device one-time key counts — use SQL COUNT instead of .all().length
@@ -427,9 +439,14 @@ export function buildSyncResponse(opts: SyncOptions) {
     }
   }
 
-  // next_batch must cover both event stream and device list stream
+  // next_batch must cover event stream, device list stream, and account data stream
   const maxEventId = getMaxEventId()
-  const nextBatch = (maxDeviceListUlid > maxEventId ? maxDeviceListUlid : maxEventId) || '0'
+  let nextBatch = maxEventId
+  if (maxDeviceListUlid > nextBatch)
+    nextBatch = maxDeviceListUlid
+  if (maxAccountDataStreamId > nextBatch)
+    nextBatch = maxAccountDataStreamId
+  nextBatch = nextBatch || '0'
 
   // Persist next_batch to device for recovery on reconnect
   db.update(devices)

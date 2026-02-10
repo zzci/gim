@@ -6,9 +6,11 @@ import { db } from '@/db'
 import { accountData, accountFilters, accounts, accountTokens, devices, e2eeCrossSigningKeys, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { getDefaultPushRules } from '@/modules/notification/service'
+import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 import { avatarUrl as avatarUrlSchema, displayName as displayNameSchema, validate } from '@/shared/validation'
+import { generateUlid } from '@/utils/tokens'
 
 // --- Whoami ---
 
@@ -130,15 +132,20 @@ accountDataRoute.put('/:type', async (c) => {
 
   const content = await c.req.json()
 
+  const streamId = generateUlid()
+
   await db.insert(accountData).values({
     userId,
     type,
     roomId: '',
     content,
+    streamId,
   }).onConflictDoUpdate({
     target: [accountData.userId, accountData.type, accountData.roomId],
-    set: { content },
+    set: { content, streamId },
   })
+
+  notifyUser(userId)
 
   return c.json({})
 })

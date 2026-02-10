@@ -31,6 +31,7 @@ export const accountData = sqliteTable('account_data', {
   type: text('type').notNull(),
   roomId: text('room_id').default(''), // empty string = global
   content: text('content', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  streamId: text('stream_id').notNull().$defaultFn(generateUlid),
 }, table => [
   primaryKey({ columns: [table.userId, table.type, table.roomId] }),
 ])

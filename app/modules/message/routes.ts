@@ -5,11 +5,13 @@ import { db } from '@/db'
 import { accountData, currentRoomState, eventsState, eventsTimeline, readReceipts, typingNotifications } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
+import { notifyUser } from '@/modules/sync/notifier'
 import { parseEventId, queryEventById, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations, formatEventWithRelations } from '@/shared/helpers/formatEvent'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 import { eventContent, validate } from '@/shared/validation'
+import { generateUlid } from '@/utils/tokens'
 
 export const messageRouter = new Hono<AuthEnv>()
 
@@ -478,15 +480,20 @@ messageRouter.put('/:roomId/account_data/:type', async (c) => {
   const dataType = c.req.param('type')
   const content = await c.req.json()
 
+  const streamId = generateUlid()
+
   db.insert(accountData).values({
     userId: auth.userId,
     type: dataType,
     roomId,
     content,
+    streamId,
   }).onConflictDoUpdate({
     target: [accountData.userId, accountData.type, accountData.roomId],
-    set: { content },
+    set: { content, streamId },
   }).run()
+
+  notifyUser(auth.userId)
 
   return c.json({})
 })

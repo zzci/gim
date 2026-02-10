@@ -404,11 +404,17 @@ function processE2ee(userId: string, deviceId: string): Record<string, any> {
   }
 }
 
-function processAccountData(userId: string, _since?: string): Record<string, any> {
-  const globalData = db.select().from(accountData).where(and(
+function processAccountData(userId: string, since?: string): Record<string, any> {
+  const conditions = [
     eq(accountData.userId, userId),
     eq(accountData.roomId, ''),
-  )).all().map(d => ({ type: d.type, content: d.content }))
+  ]
+  if (since) {
+    conditions.push(gt(accountData.streamId, since))
+  }
+
+  const rows = db.select().from(accountData).where(and(...conditions)).all()
+  const globalData = rows.map(d => ({ type: d.type, content: d.content }))
 
   return {
     global: globalData,
