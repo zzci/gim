@@ -6,7 +6,7 @@ COPY admin/package.json admin/bun.lock admin/
 RUN cd admin && bun install --frozen-lockfile
 
 COPY admin/ admin/
-RUN bun run admin:build
+RUN cd admin && bun run build
 
 # Stage 2: Runtime
 FROM oven/bun:latest
