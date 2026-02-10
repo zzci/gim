@@ -1,4 +1,5 @@
 import type { Context, Next } from 'hono'
+import { getRegistrationByAsToken } from '@/modules/appservice/config'
 
 // In-memory sliding window rate limiter — intentionally kept in-memory for performance.
 // Rate limiting must be synchronous and fast; externalizing to Redis would add latency
@@ -18,6 +19,16 @@ setInterval(() => {
 }, 5 * 60_000)
 
 export async function rateLimitMiddleware(c: Context, next: Next) {
+  // Skip rate limiting for application services (unless explicitly rate_limited)
+  const authHeader = c.req.header('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const asReg = getRegistrationByAsToken(authHeader.slice(7))
+    if (asReg && !asReg.rateLimited) {
+      await next()
+      return
+    }
+  }
+
   const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
     || c.req.header('x-real-ip')
     || 'unknown'

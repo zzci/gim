@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { maxRoomMembers, maxRoomsPerUser, serverName } from '@/config'
 import { db } from '@/db'
 import { accountTokens, eventsState, oauthTokens, roomAliases, roomMembers, rooms } from '@/db/schema'
+import { queryAppServiceRoomAlias } from '@/modules/appservice/service'
 import { createEvent } from '@/modules/message/service'
 import { createRoom, getRoomJoinRule, getRoomMembership, getRoomSummary, getUserPowerLevel } from '@/modules/room/service'
 import { authMiddleware } from '@/shared/middleware/auth'
@@ -73,11 +74,18 @@ joinRoute.post('/:roomIdOrAlias', async (c) => {
   const roomIdOrAlias = decodeURIComponent(c.req.param('roomIdOrAlias'))
   let roomId = roomIdOrAlias
   if (roomIdOrAlias.startsWith('#')) {
-    const alias = await db.select().from(roomAliases).where(eq(roomAliases.alias, roomIdOrAlias)).limit(1)
-    if (!alias[0]) {
-      return matrixNotFound(c, 'Room alias not found')
+    let alias = db.select().from(roomAliases).where(eq(roomAliases.alias, roomIdOrAlias)).get()
+    if (!alias) {
+      // Fallback: query application services
+      const asRoomId = await queryAppServiceRoomAlias(roomIdOrAlias)
+      if (asRoomId) {
+        alias = db.select().from(roomAliases).where(eq(roomAliases.alias, roomIdOrAlias)).get()
+      }
+      if (!alias) {
+        return matrixNotFound(c, 'Room alias not found')
+      }
     }
-    roomId = alias[0].roomId
+    roomId = alias.roomId
   }
   const room = db.select().from(rooms).where(eq(rooms.id, roomId)).get()
   if (!room) {
@@ -385,9 +393,16 @@ roomAliasRoute.put('/:roomAlias', authMiddleware, async (c) => {
 roomAliasRoute.get('/:roomAlias', async (c) => {
   const roomAlias = decodeURIComponent(c.req.param('roomAlias'))
 
-  const alias = db.select().from(roomAliases).where(eq(roomAliases.alias, roomAlias)).get()
+  let alias = db.select().from(roomAliases).where(eq(roomAliases.alias, roomAlias)).get()
   if (!alias) {
-    return matrixNotFound(c, 'Room alias not found')
+    // Fallback: query application services
+    const asRoomId = await queryAppServiceRoomAlias(roomAlias)
+    if (asRoomId) {
+      alias = db.select().from(roomAliases).where(eq(roomAliases.alias, roomAlias)).get()
+    }
+    if (!alias) {
+      return matrixNotFound(c, 'Room alias not found')
+    }
   }
 
   return c.json({ room_id: alias.roomId, servers: [serverName] })

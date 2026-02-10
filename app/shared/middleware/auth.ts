@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
+import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
 import { matrixError } from './errors'
 
 const deviceLastUpdated = new Map<string, number>()
@@ -43,6 +44,32 @@ export async function authMiddleware(c: Context, next: Next) {
 
   if (!token) {
     return matrixError(c, 'M_MISSING_TOKEN', 'Missing access token')
+  }
+
+  // Try Application Service tokens first
+  const asReg = getRegistrationByAsToken(token)
+  if (asReg) {
+    const assertUserId = c.req.query('user_id')
+    let userId: string
+
+    if (assertUserId) {
+      // Validate asserted user is in AS namespace
+      if (!isUserInNamespace(assertUserId, asReg)) {
+        return matrixError(c, 'M_FORBIDDEN', 'User is not in appservice namespace')
+      }
+      userId = assertUserId
+    }
+    else {
+      userId = `@${asReg.senderLocalpart}:${serverName}`
+    }
+
+    // Auto-create the user account if needed
+    ensureAppServiceUser(userId)
+
+    // AS requests skip device tracking
+    c.set('auth', { userId, deviceId: 'APPSERVICE', isGuest: false } as AuthContext)
+    await next()
+    return
   }
 
   // Try OAuth tokens first

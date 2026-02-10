@@ -5,10 +5,12 @@ import { startCron } from '@/cron'
 import { sqlite } from '@/db'
 import { accountDataRoute, accountTokensRoute, deactivateRoute, profileRoute, pushRulesRoute, userFilterRoute, whoamiRoute } from '@/modules/account/routes'
 import { adminRoute } from '@/modules/admin/routes'
+import { loadAppServiceRegistrations } from '@/modules/appservice/config'
+import { appServicePingRoute } from '@/modules/appservice/routes'
 import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ssoCallbackRoute, ssoRedirectRoute } from '@/modules/auth/routes'
+
 import { deviceRoute } from '@/modules/device/routes'
 import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee/routes'
-
 import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRoute, mediaThumbnailRoute, mediaUploadRoute } from '@/modules/media/routes'
 import { messageRouter } from '@/modules/message/routes'
 import { pusherRoute } from '@/modules/notification/pusherRoutes'
@@ -256,6 +258,9 @@ async function run() {
   app.route('/_matrix/media/v3/config', mediaConfigRoute)
   app.route('/_matrix/media/v3/preview_url', mediaPreviewRoute)
 
+  /* appservice */
+  app.route('/_matrix/client/v1/appservice', appServicePingRoute)
+
   /* admin */
   app.route('/admin', adminRoute)
   app.get('/admin/assets/*', serveStatic({ root: './admin/dist', rewriteRequestPath: p => p.replace('/admin', '') }))
@@ -272,6 +277,9 @@ async function run() {
 
   // Catch-all for unmatched routes — return Matrix 404 with CORS headers
   app.notFound(c => c.json({ errcode: 'M_UNRECOGNIZED', error: 'Unrecognized request' }, 404))
+
+  // Load Application Service registrations from DB + YAML
+  loadAppServiceRegistrations()
 
   const stopCron = startCron()
 

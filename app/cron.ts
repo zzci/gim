@@ -3,6 +3,7 @@ import { Cron } from 'croner'
 import { eq, isNull, sql } from 'drizzle-orm'
 import { db } from '@/db'
 import { mediaDeletions } from '@/db/schema'
+import { processAppServiceTransactions } from '@/modules/appservice/service'
 import { expirePresence } from '@/modules/presence/service'
 import { deleteFromS3 } from '@/utils/s3'
 
@@ -112,6 +113,14 @@ export function startCron() {
       }
       catch (err) {
         logger.error('Cron expirePresence failed', { error: String(err) })
+      }
+    }),
+    new Cron('*/5 * * * * *', async () => {
+      try {
+        await processAppServiceTransactions()
+      }
+      catch (err) {
+        logger.error('Cron processAppServiceTransactions failed', { error: String(err) })
       }
     }),
   ]

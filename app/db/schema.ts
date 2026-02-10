@@ -316,6 +316,31 @@ export const presence = sqliteTable('presence', {
   lastActiveAt: integer('last_active_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })
 
+// ======== Application Services ========
+
+export const appservices = sqliteTable('appservices', {
+  id: text('id').primaryKey().$defaultFn(generateUlid),
+  asId: text('as_id').notNull().unique(), // AS-declared identifier
+  url: text('url'),
+  asToken: text('as_token').notNull().unique(),
+  hsToken: text('hs_token').notNull(),
+  senderLocalpart: text('sender_localpart').notNull(),
+  namespaces: text('namespaces', { mode: 'json' }).notNull().$type<{
+    users?: { exclusive?: boolean, regex: string }[]
+    aliases?: { exclusive?: boolean, regex: string }[]
+    rooms?: { exclusive?: boolean, regex: string }[]
+  }>().default({}),
+  rateLimited: integer('rate_limited', { mode: 'boolean' }).default(false),
+  protocols: text('protocols', { mode: 'json' }).$type<string[]>(),
+  // Delivery state
+  lastStreamPosition: text('last_stream_position').notNull().default(''),
+  lastTxnId: integer('last_txn_id').notNull().default(0),
+  failedAttempts: integer('failed_attempts').notNull().default(0),
+  lastFailureAt: integer('last_failure_at', { mode: 'timestamp_ms' }),
+  lastSuccessAt: integer('last_success_at', { mode: 'timestamp_ms' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+})
+
 // ======== Admin ========
 
 export const adminAuditLog = sqliteTable('admin_audit_log', {
