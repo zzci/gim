@@ -34,7 +34,9 @@ function sanitizeUploadFileName(name: string): string | null {
   return sanitized || null
 }
 
-// Per-user upload rate limiter
+// Per-user upload rate limiter — intentionally kept in-memory for performance.
+// Upload rate checks must be synchronous and fast; for multi-process deployments
+// each process maintains its own window (acceptable since quota is enforced in DB).
 const uploadWindows = new Map<string, { count: number, resetAt: number }>()
 
 setInterval(() => {

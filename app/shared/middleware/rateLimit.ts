@@ -1,6 +1,8 @@
 import type { Context, Next } from 'hono'
 
-// In-memory sliding window rate limiter
+// In-memory sliding window rate limiter — intentionally kept in-memory for performance.
+// Rate limiting must be synchronous and fast; externalizing to Redis would add latency
+// to every request. For multi-process deployments, each process maintains its own window.
 const windows = new Map<string, { count: number, resetAt: number }>()
 
 const WINDOW_MS = 60_000 // 1 minute

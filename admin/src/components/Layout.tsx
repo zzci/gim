@@ -1,5 +1,6 @@
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { adminLogout, hasDevToken } from '../api'
 
 const navItems = [
   { to: '/' as const, label: 'Dashboard' },
@@ -7,21 +8,36 @@ const navItems = [
   { to: '/rooms' as const, label: 'Rooms' },
   { to: '/media' as const, label: 'Media' },
   { to: '/tokens' as const, label: 'Tokens' },
+  { to: '/audit-log' as const, label: 'Audit Log' },
 ]
 
 export function Layout() {
   const navigate = useNavigate()
   const pathname = useRouterState({ select: s => s.location.pathname })
   const isLoginPage = pathname === '/admin/login'
-  const hasToken = !!localStorage.getItem('admin_token')
+  const [authenticated, setAuthenticated] = useState(hasDevToken())
 
   useEffect(() => {
-    if (!hasToken && !isLoginPage) {
-      navigate({ to: '/login' })
-    }
-  }, [hasToken, isLoginPage, navigate])
+    if (isLoginPage)
+      return
+    // Check auth by making a lightweight API call
+    fetch('/admin/api/stats', { credentials: 'same-origin' })
+      .then((res) => {
+        if (!res.ok) {
+          setAuthenticated(false)
+          navigate({ to: '/login' })
+        }
+        else {
+          setAuthenticated(true)
+        }
+      })
+      .catch(() => {
+        setAuthenticated(false)
+        navigate({ to: '/login' })
+      })
+  }, [isLoginPage, navigate])
 
-  if (isLoginPage) {
+  if (isLoginPage || !authenticated) {
     return <Outlet />
   }
 
@@ -47,8 +63,8 @@ export function Layout() {
         </nav>
         <div className="p-3 border-t border-gray-800">
           <button
-            onClick={() => {
-              localStorage.removeItem('admin_token')
+            onClick={async () => {
+              await adminLogout()
               navigate({ to: '/login' })
             }}
             className="w-full px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-md transition-colors text-left"

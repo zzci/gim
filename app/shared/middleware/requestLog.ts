@@ -12,7 +12,7 @@ export async function requestLogMiddleware(c: Context, next: Next) {
   const method = c.req.method
   const path = c.req.path
 
-  recordRequest(method, status)
+  recordRequest(method, status, path, duration)
 
   // Sync long-poll timeouts with empty response are noise
   if (path.includes('/sync') && duration > 25000 && status === 200) {

@@ -18,7 +18,7 @@ import { createRoomRoute, joinedRoomsRoute, joinRoute, roomAliasRoute, roomMembe
 import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRoute } from '@/modules/server/routes'
 import { syncRoute } from '@/modules/sync/routes'
 import { oauthApp } from '@/oauth/provider'
-import { getMetrics } from '@/shared/metrics'
+import { formatPrometheusMetrics } from '@/shared/metrics'
 import { rateLimitMiddleware } from '@/shared/middleware/rateLimit'
 import { requestIdMiddleware } from '@/shared/middleware/requestId'
 import { requestLogMiddleware } from '@/shared/middleware/requestLog'
@@ -158,8 +158,12 @@ async function run() {
     }
   })
 
-  // Metrics
-  app.get('/metrics', c => c.json(getMetrics()))
+  // Metrics — Prometheus text format
+  app.get('/metrics', (c) => {
+    return c.text(formatPrometheusMetrics(), 200, {
+      'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+    })
+  })
 
   // Self-contained OIDC provider
   app.use('/oauth/*', rateLimitMiddleware)

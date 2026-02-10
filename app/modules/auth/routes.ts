@@ -2,6 +2,7 @@ import type { AuthEnv } from '@/shared/middleware/auth'
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { cacheDel, cacheGet, cacheSet } from '@/cache'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { accounts, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens } from '@/db/schema'
@@ -249,15 +250,13 @@ function isValidRedirectUrl(url: string): boolean {
   }
 }
 
-const ssoStates = new Map<string, { redirectUrl: string, codeVerifier: string, expiresAt: number }>()
+interface SsoState {
+  redirectUrl: string
+  codeVerifier: string
+  expiresAt: number
+}
 
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, value] of ssoStates) {
-    if (value.expiresAt < now)
-      ssoStates.delete(key)
-  }
-}, 5 * 60 * 1000)
+const SSO_STATE_TTL = 600 // 10 minutes
 
 const callbackUrl = `https://${serverName}/_matrix/client/v3/login/sso/callback`
 
@@ -277,11 +276,11 @@ ssoRedirectRoute.get('/', async (c) => {
   const codeVerifier = randomBytes(32).toString('base64url')
   const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
-  ssoStates.set(state, {
+  await cacheSet(`sso:${state}`, {
     redirectUrl,
     codeVerifier,
-    expiresAt: Date.now() + 10 * 60 * 1000,
-  })
+    expiresAt: Date.now() + SSO_STATE_TTL * 1000,
+  } satisfies SsoState, { ttl: SSO_STATE_TTL })
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -309,11 +308,11 @@ ssoCallbackRoute.get('/', async (c) => {
   if (!code || !state)
     return matrixError(c, 'M_MISSING_PARAM', 'Missing code or state')
 
-  const ssoState = ssoStates.get(state)
+  const ssoState = await cacheGet<SsoState>(`sso:${state}`)
   if (!ssoState)
     return matrixError(c, 'M_UNKNOWN', 'Invalid or expired SSO state')
 
-  ssoStates.delete(state)
+  await cacheDel(`sso:${state}`)
 
   if (ssoState.expiresAt < Date.now())
     return matrixError(c, 'M_UNKNOWN', 'SSO state expired')

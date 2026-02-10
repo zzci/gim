@@ -1,6 +1,6 @@
 # GIM 改进路线图
 
-> 版本: 0.1.2 | 最后更新: 2026-02-10
+> 版本: 0.2.0 | 最后更新: 2026-02-10
 
 ## 1. 已发现问题清单
 
@@ -8,7 +8,7 @@
 
 | # | 问题 | 位置 | 影响 | 状态 |
 |---|------|------|------|------|
-| S1 | **进程内状态阻止水平扩展** — Sync Notifier 使用 EventEmitter，SSO/OAuth 状态存在内存 Map，限流器使用内存 Map | sync/notifier.ts, auth/routes.ts, oauth/provider.ts, rateLimit.ts, media/routes.ts | 无法多进程部署 | ⏳ Phase 3 |
+| S1 | ~~**进程内状态阻止水平扩展**~~ — SSO/OAuth 状态已迁移至 unstorage cache，限流器/上传窗口保持进程内（性能优先），Notifier 保持 EventEmitter（SQLite 单进程） | sync/notifier.ts, auth/routes.ts, oauth/provider.ts, rateLimit.ts, media/routes.ts | ~~无法多进程部署~~ | ✅ Phase 3 (部分：状态外部化) |
 | S2 | ~~**缺失数据库索引**~~ | db/schema.ts | ~~大数据量时查询性能急剧下降~~ | ✅ Phase 1 |
 | S3 | ~~**N+1 查询问题**~~ | helpers/eventQueries.ts, formatEvent.ts, notification/service.ts, presence/service.ts | ~~房间多/成员多时同步延迟飙升~~ | ✅ Phase 2 |
 | S4 | ~~**设备删除/账号停用非事务性**~~ | device/routes.ts, account/routes.ts | ~~异常时产生孤儿数据~~ | ✅ Phase 1 |
@@ -20,7 +20,7 @@
 | H1 | ~~**auth middleware 每请求写入 devices**~~ | shared/middleware/auth.ts | ~~写入放大，SQLite 写入锁压力~~ | ✅ Phase 1 (5min 节流) |
 | H2 | ~~**事件查询双表合并在内存执行**~~ | helpers/eventQueries.ts | ~~大房间内存消耗高~~ | ✅ Phase 2 (UNION ALL) |
 | H3 | ~~**媒体配额 TOCTOU 竞态**~~ | media/routes.ts | ~~存储超限~~ | ✅ Phase 2 (事务原子化) |
-| H4 | **SSO 回调状态 10 分钟 TTL** — 清理间隔 5 分钟，最多残留 15 分钟 | auth/routes.ts, oauth/provider.ts | 内存泄漏（低速率） | ⚠️ 有清理机制，影响低 |
+| H4 | ~~**SSO 回调状态 10 分钟 TTL**~~ — SSO 状态迁移至 unstorage cache (TTL 自动过期)，auth 清理间隔降至 1 分钟 | auth/routes.ts, oauth/provider.ts | ~~内存泄漏~~ | ✅ Phase 3 |
 | H5 | ~~**缺失外键约束**~~ | db/schema.ts | ~~数据孤儿风险~~ | ✅ Phase 1 |
 | H6 | ~~**Cron 任务无错误处理**~~ | cron.ts | ~~静默失败，孤儿数据堆积~~ | ✅ Phase 1 |
 
@@ -28,22 +28,22 @@
 
 | # | 问题 | 位置 | 影响 | 状态 |
 |---|------|------|------|------|
-| M1 | 交叉签名密钥上传不验证签名内容 | e2ee/routes.ts | 可注入虚假签名 | ❌ 未修复 |
+| M1 | ~~交叉签名密钥上传不验证签名内容~~ | e2ee/routes.ts | ~~可注入虚假签名~~ | ✅ Phase 3 (结构+签名验证) |
 | M2 | ~~notifyUser() 在循环中逐个调用~~ | e2ee/routes.ts, message/service.ts | ~~通知风暴~~ | ✅ Phase 1 (Set 去重) |
-| M3 | 管理面板 Token 存 localStorage | admin/src/api.ts | XSS 可窃取管理权限 | ❌ 未修复 |
+| M3 | ~~管理面板 Token 存 localStorage~~ | admin/src/api.ts, admin/middleware.ts | ~~XSS 可窃取管理权限~~ | ✅ Phase 3 (httpOnly cookie) |
 | M4 | ~~媒体文件名清理不完整~~ | media/routes.ts | ~~null 字节/路径遍历风险~~ | ✅ Phase 1 |
 | M5 | 测试覆盖不足 — 无 E2EE 验证流程测试、无媒体测试、无管理 API 测试 | tests/ | 回归风险 | ⏳ Phase 4 |
-| M6 | presence 变更不通知共享房间成员 | presence/service.ts | 在线状态延迟感知 | ❌ 未修复 |
+| M6 | ~~presence 变更不通知共享房间成员~~ | presence/service.ts | ~~在线状态延迟感知~~ | ✅ Phase 3 |
 | M7 | ~~createRoomBody 使用 passthrough()~~ | shared/validation.ts | ~~允许任意额外字段~~ | ✅ Phase 1 |
 
 ### 1.4 低级别问题
 
 | # | 问题 | 位置 | 影响 | 状态 |
 |---|------|------|------|------|
-| L1 | metrics 指标仅内存存储 | shared/metrics.ts | 重启丢失 | ⏳ Phase 3 |
-| L2 | 管理面板缺少操作确认弹窗 | admin/src/routes/ | 误操作风险 | ⏳ Phase 4 |
-| L3 | 管理面板无活动审计日志 | admin/ | 无法追溯管理操作 | ⏳ Phase 4 |
-| L4 | 管理面板搜索使用 LIKE %keyword% | admin/routes.ts | 无法利用索引 | ❌ 未修复 |
+| L1 | ~~metrics 指标仅内存存储~~ | shared/metrics.ts | ~~重启丢失~~ | ✅ Phase 3 (Prometheus text format) |
+| L2 | ~~管理面板缺少操作确认弹窗~~ | admin/src/routes/ | ~~误操作风险~~ | ✅ Phase 3 (ConfirmDialog) |
+| L3 | ~~管理面板无活动审计日志~~ | admin/, admin/routes.ts, db/schema.ts | ~~无法追溯管理操作~~ | ✅ Phase 3 (adminAuditLog table + UI) |
+| L4 | ~~管理面板搜索使用 LIKE %keyword%~~ | admin/routes.ts | ~~无法利用索引~~ | ✅ Phase 3 (prefix match for @/!) |
 
 ---
 
@@ -112,47 +112,48 @@ auth middleware 添加 5 分钟节流，仅在超过阈值时才更新 lastSeenA
 
 ---
 
-### Phase 3: 可扩展性（中期，3-6 个月）
+### Phase 3: 可扩展性与安全 ✅ 已完成
 
-**目标：** 支持多进程部署，提升系统上限
+**目标：** 状态外部化、Prometheus 指标、安全修复、管理面板增强
 
-#### 3.1 状态外部化 [S1]
+#### 3.1 状态外部化 [S1, H4] ✅
+
+- SSO 流程状态 (`ssoStates`) 迁移至 unstorage cache (`sso:{stateId}`, TTL 10min)
+- OAuth 上游状态 (`upstreamAuthStates`) 迁移至 unstorage cache (`oauth:upstream:{stateId}`)
+- OAuth 动作状态 (`actionStates`) 迁移至 unstorage cache (`oauth:action:{stateId}`)
+- SSO 清理间隔从 5min 降至 1min
+- 限流器和上传速率窗口保持进程内（性能优先，添加设计说明注释）
+
+#### 3.2 Prometheus 指标 [L1] ✅
+
+- `gim_http_requests_total{method,status}` — 请求计数器
+- `gim_http_request_duration_seconds{method,path}` — 请求延迟直方图 (11 个桶)
+- `gim_active_sync_connections` — 活跃长轮询连接数 gauge
+- `gim_uptime_seconds` — 服务器运行时间
+- `GET /metrics` 返回 Prometheus text format (text/plain; version=0.0.4)
+- 路径标签自动归一化防止高基数 (room ID → :roomId, etc.)
+
+#### 3.3 安全修复 [M1, M3, M6] ✅
+
+- [M1] 交叉签名密钥上传添加结构验证：keys 对象、signatures 非空、usage 匹配、ed25519 密钥唯一、user_id 匹配
+- [M3] 管理面板 Token 从 localStorage 迁移至 httpOnly cookie (SameSite=Strict, Path=/admin)
+  - 新增 `POST /admin/api/login` (设置 cookie) 和 `POST /admin/api/logout` (清除 cookie)
+  - 前端移除所有 localStorage 用法，改用 `credentials: 'same-origin'`
+- [M6] Presence 变更通知共享房间成员：`setPresence()` 和 `touchPresence()` 在状态变化时调用 `notifyRoommates()`
+
+#### 3.4 管理面板增强 [L2, L3, L4] ✅
+
+- [L2] 新增 `ConfirmDialog` 组件，应用于用户停用、媒体删除、Token 撤销
+- [L3] 新增 `adminAuditLog` 表 + `logAdminAction()` + `GET /admin/api/audit-log` + 前端审计日志页面
+- [L4] 用户搜索 `@` 开头使用前缀匹配 (`LIKE '@..%'`)，房间搜索 `!` 开头使用前缀匹配
+
+#### 3.5 待完成
 
 ```
-阶段 A: Notifier → Redis Pub/Sub
-  - 替换 EventEmitter 为 Redis SUBSCRIBE/PUBLISH
-  - 复用 unstorage Redis 驱动连接
-
-阶段 B: 限流器 → Redis
-  - 使用 Redis INCR + EXPIRE 实现分布式限流
-
-阶段 C: Auth States → Redis
-  - SSO 流程状态存入 Redis (10min TTL)
-  - OAuth 授权状态存入 Redis
-```
-
-#### 3.2 容器化
-
-```
-- 创建多阶段 Dockerfile
-- 创建 docker-compose.yml (app + Redis)
-- 添加健康检查配置
-- 文档化生产部署流程
-```
-
-#### 3.3 可观测性增强
-
-```
-- Prometheus 指标端点 [L1]
-  - http_request_duration_seconds (直方图)
-  - db_query_count / db_query_duration
-  - sync_wait_duration
-  - e2ee_otk_count (OTK 库存)
-  - active_sync_connections (当前长轮询数)
-
-- 结构化日志增强
-  - 添加 trace_id 贯穿请求链
-  - 数据库查询日志（开发模式）
+- 容器化（Dockerfile + docker-compose.yml）
+- Notifier → Redis Pub/Sub（需要多进程部署时实现）
+- 限流器 → Redis（需要多进程部署时实现）
+- 结构化日志增强 (trace_id)
 ```
 
 ---
@@ -180,14 +181,11 @@ Phase 4a: 基础增强
   - 用户创建/密码重置
   - 房间状态查看/编辑
   - 设备管理（登出/删除）
-  - 操作确认对话框 [L2]
   - 错误提示优化
 
 Phase 4b: 高级功能
   - 数据可视化 (活跃用户趋势、消息量图表)
-  - 审计日志 [L3]
   - 批量操作
-  - 全局搜索（改进 LIKE 查询 [L4]）
 ```
 
 #### 4.3 测试覆盖提升 [M5]
@@ -207,8 +205,9 @@ Phase 4b: 高级功能
 #### 4.4 遗留安全修复
 
 ```
+✅ 已在 Phase 3 完成:
 - [M1] 交叉签名密钥上传签名验证
-- [M3] 管理面板 Token 改用 httpOnly Cookie（移至 Phase 5.3）
+- [M3] 管理面板 Token 改用 httpOnly Cookie
 - [M6] presence 变更通知共享房间成员
 ```
 
@@ -241,10 +240,8 @@ Phase 4b: 高级功能
 #### 5.3 安全加固
 
 ```
-- 管理 Token 改用 httpOnly Cookie [M3]
 - 添加 CSP/安全头
 - 速率限制精细化（按端点）
-- 审计日志持久化
 - 自动过期不活跃设备
 ```
 
@@ -258,11 +255,11 @@ Phase 4b: 高级功能
 |------|----------|--------|------|------|
 | N+1 查询 | 6 处 | 6 | 0 | ✅ Phase 2 全部消除 |
 | 缺失事务 | 3 处 | 3 | 0 | ✅ Phase 1 全部修复 |
-| 内存状态 | 5 处 | 0 | 5 | ⏳ Phase 3 状态外部化 |
+| 内存状态 | 5 处 | 3 | 2 | ✅ SSO/OAuth → cache / 限流器+Notifier 保持进程内 |
 | 缺失索引 | 12 个 | 12 | 0 | ✅ Phase 1 全部补全 |
 | 缺失外键 | 3 个 | 2 | 1 | oauthTokens.accountId 格式差异待处理 |
 | 缺失错误处理 | 3 处 | 1 | 2 | cron ✅ / 缓存层、S3 操作待处理 |
-| 安全问题 | 3 个 | 1 | 2 | M4 ✅ / M1, M3 待修复 |
+| 安全问题 | 3 个 | 3 | 0 | ✅ M4 Phase 1 / M1, M3 Phase 3 |
 
 ### 测试债务
 
@@ -286,8 +283,8 @@ Phase 4b: 高级功能
 ```
 v0.1.1  ─── ✅ 索引补全 + 事务修复 + Cron 错误处理 + 外键 + 写入节流
 v0.1.2  ─── ✅ N+1 查询消除 + UNION ALL + 批量同步 + 缓存层 + 配额原子化
-v0.2.0  ─── Redis 状态外部化 + Docker 支持
-v0.3.0  ─── Sliding Sync + 线程消息
-v0.4.0  ─── 管理面板增强 + 审计日志 + 安全修复 (M1, M3, M6)
+v0.2.0  ─── ✅ 状态外部化 + Prometheus + 安全修复 (M1, M3, M6) + 管理面板增强 (L2-L4)
+v0.3.0  ─── Sliding Sync + 线程消息 + Docker 支持
+v0.4.0  ─── 测试覆盖 [M5] + 管理面板高级功能
 v1.0.0  ─── 生产就绪（PG 可选、完整测试、运维工具）
 ```

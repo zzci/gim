@@ -1,10 +1,99 @@
-import { and, count, eq, like, sql } from 'drizzle-orm'
+import { and, count, desc, eq, like, sql } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { setCookie } from 'hono/cookie'
+import { serverName } from '@/config'
 import { db } from '@/db'
-import { accounts, accountTokens, devices, eventsState, eventsTimeline, media, mediaDeletions, oauthTokens, roomMembers, rooms } from '@/db/schema'
+import { accounts, accountTokens, adminAuditLog, devices, eventsState, eventsTimeline, media, mediaDeletions, oauthTokens, roomMembers, rooms } from '@/db/schema'
 import { adminMiddleware } from './middleware'
 
+function logAdminAction(
+  adminUserId: string,
+  action: string,
+  targetType: string,
+  targetId: string,
+  details: Record<string, unknown> | null,
+  ipAddress: string | null,
+) {
+  db.insert(adminAuditLog).values({
+    adminUserId,
+    action,
+    targetType,
+    targetId,
+    details,
+    ipAddress,
+  }).run()
+}
+
+function getAdminContext(c: { get: (key: string) => unknown, req: { header: (name: string) => string | undefined } }) {
+  const auth = c.get('auth') as { userId: string }
+  const ip = c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || null
+  return { adminUserId: auth.userId, ip }
+}
+
 export const adminRoute = new Hono()
+
+// POST /api/login — validate token and set httpOnly cookie
+adminRoute.post('/api/login', async (c) => {
+  const body = await c.req.json<{ token: string }>()
+  const token = body.token?.trim()
+  if (!token) {
+    return c.json({ error: 'Missing token' }, 400)
+  }
+
+  // Validate the token works by checking it against auth stores
+  const oauthRow = db.select({ accountId: oauthTokens.accountId, expiresAt: oauthTokens.expiresAt })
+    .from(oauthTokens)
+    .where(and(eq(oauthTokens.id, `AccessToken:${token}`), eq(oauthTokens.type, 'AccessToken')))
+    .get()
+
+  const userTokenRow = !oauthRow
+    ? db.select({ userId: accountTokens.userId }).from(accountTokens).where(eq(accountTokens.token, token)).get()
+    : null
+
+  if (!oauthRow && !userTokenRow) {
+    return c.json({ error: 'Invalid token' }, 401)
+  }
+
+  if (oauthRow?.expiresAt && oauthRow.expiresAt.getTime() < Date.now()) {
+    return c.json({ error: 'Token expired' }, 401)
+  }
+
+  // Resolve userId and check admin flag
+  let userId: string
+  if (oauthRow) {
+    const accountId = oauthRow.accountId!
+    userId = accountId.startsWith('@') ? accountId : `@${accountId}:${serverName}`
+  }
+  else {
+    userId = userTokenRow!.userId
+  }
+
+  const account = db.select({ admin: accounts.admin }).from(accounts).where(eq(accounts.id, userId)).get()
+  if (!account?.admin) {
+    return c.json({ error: 'Admin access required' }, 403)
+  }
+
+  setCookie(c, 'admin_token', token, {
+    httpOnly: true,
+    sameSite: 'Strict',
+    path: '/admin',
+    maxAge: 7 * 24 * 60 * 60, // 7 days
+  })
+
+  return c.json({ ok: true })
+})
+
+// POST /api/logout — clear the httpOnly cookie
+adminRoute.post('/api/logout', (c) => {
+  setCookie(c, 'admin_token', '', {
+    httpOnly: true,
+    sameSite: 'Strict',
+    path: '/admin',
+    maxAge: 0,
+  })
+  return c.json({ ok: true })
+})
+
 adminRoute.use('/api/*', adminMiddleware)
 
 // GET /api/stats — Server statistics
@@ -29,7 +118,10 @@ adminRoute.get('/api/users', (c) => {
   const offset = Number(c.req.query('offset') || 0)
   const search = c.req.query('search')
 
-  const where = search ? like(accounts.id, `%${search}%`) : undefined
+  // Use prefix match for @user:server format (can use primary key index)
+  const where = search
+    ? like(accounts.id, search.startsWith('@') ? `${search}%` : `%${search}%`)
+    : undefined
 
   const rows = db
     .select({
@@ -88,6 +180,14 @@ adminRoute.put('/api/users/:userId', async (c) => {
     db.update(accounts).set(updates).where(eq(accounts.id, userId)).run()
   }
 
+  const { adminUserId, ip } = getAdminContext(c)
+  if (typeof body.isDeactivated === 'boolean') {
+    logAdminAction(adminUserId, body.isDeactivated ? 'user.deactivate' : 'user.reactivate', 'user', userId, updates, ip)
+  }
+  if (typeof body.admin === 'boolean') {
+    logAdminAction(adminUserId, body.admin ? 'user.grant_admin' : 'user.revoke_admin', 'user', userId, updates, ip)
+  }
+
   const updated = db.select().from(accounts).where(eq(accounts.id, userId)).get()
   return c.json(updated)
 })
@@ -98,7 +198,10 @@ adminRoute.get('/api/rooms', (c) => {
   const offset = Number(c.req.query('offset') || 0)
   const search = c.req.query('search')
 
-  const where = search ? like(rooms.id, `%${search}%`) : undefined
+  // Use prefix match for !room:server format (can use primary key index)
+  const where = search
+    ? like(rooms.id, search.startsWith('!') ? `${search}%` : `%${search}%`)
+    : undefined
 
   const rows = db
     .select({
@@ -181,6 +284,9 @@ adminRoute.delete('/api/media/:mediaId', async (c) => {
   // Remove from media table (makes it inaccessible immediately)
   db.delete(media).where(eq(media.id, mediaId)).run()
 
+  const { adminUserId, ip } = getAdminContext(c)
+  logAdminAction(adminUserId, 'media.delete', 'media', mediaId, { contentType: record.contentType, userId: record.userId }, ip)
+
   return c.json({})
 })
 
@@ -205,5 +311,26 @@ adminRoute.delete('/api/tokens/:tokenId', (c) => {
   db.delete(oauthTokens).where(eq(oauthTokens.id, tokenId)).run()
   db.delete(accountTokens).where(eq(accountTokens.token, tokenId)).run()
 
+  const { adminUserId, ip } = getAdminContext(c)
+  logAdminAction(adminUserId, 'token.revoke', 'token', tokenId, null, ip)
+
   return c.json({})
+})
+
+// GET /api/audit-log — Paginated audit log
+adminRoute.get('/api/audit-log', (c) => {
+  const limit = Number(c.req.query('limit') || 50)
+  const offset = Number(c.req.query('offset') || 0)
+
+  const rows = db
+    .select()
+    .from(adminAuditLog)
+    .orderBy(desc(adminAuditLog.createdAt))
+    .limit(limit)
+    .offset(offset)
+    .all()
+
+  const total = db.select({ count: count() }).from(adminAuditLog).get()!
+
+  return c.json({ entries: rows, total: total.count })
 })

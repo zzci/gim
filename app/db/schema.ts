@@ -297,3 +297,19 @@ export const presence = sqliteTable('presence', {
   statusMsg: text('status_msg'),
   lastActiveAt: integer('last_active_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })
+
+// ======== Admin ========
+
+export const adminAuditLog = sqliteTable('admin_audit_log', {
+  id: text('id').primaryKey().$defaultFn(generateUlid),
+  adminUserId: text('admin_user_id').notNull(),
+  action: text('action').notNull(),
+  targetType: text('target_type').notNull(),
+  targetId: text('target_id').notNull(),
+  details: text('details', { mode: 'json' }).$type<Record<string, unknown>>(),
+  ipAddress: text('ip_address'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, table => [
+  index('admin_audit_log_admin_user_id_idx').on(table.adminUserId),
+  index('admin_audit_log_created_at_idx').on(table.createdAt),
+])

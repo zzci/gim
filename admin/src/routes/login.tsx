@@ -1,16 +1,35 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { adminLogin } from '../api'
 
 export function LoginPage() {
   const [token, setToken] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!token.trim())
       return
-    localStorage.setItem('admin_token', token.trim())
-    navigate({ to: '/' })
+
+    setError('')
+    setLoading(true)
+    try {
+      const ok = await adminLogin(token.trim())
+      if (ok) {
+        navigate({ to: '/' })
+      }
+      else {
+        setError('Invalid token or not an admin')
+      }
+    }
+    catch {
+      setError('Login failed')
+    }
+    finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -32,11 +51,15 @@ export function LoginPage() {
               autoFocus
             />
           </div>
+          {error && (
+            <p className="text-sm text-red-400">{error}</p>
+          )}
           <button
             type="submit"
-            className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-md transition-colors"
+            disabled={loading}
+            className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium rounded-md transition-colors"
           >
-            Sign in
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
       </div>

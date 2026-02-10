@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
+import { useState } from 'react'
 import { api } from '../api'
+import { ConfirmDialog } from '../components/confirm-dialog'
 
 interface UserDetail {
   user: {
@@ -29,6 +31,7 @@ interface UserDetail {
 export function UserDetailPage() {
   const { userId } = useParams({ from: '/users/$userId' })
   const queryClient = useQueryClient()
+  const [showDeactivateDialog, setShowDeactivateDialog] = useState(false)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['user', userId],
@@ -87,7 +90,7 @@ export function UserDetailPage() {
             {user.admin ? 'Remove admin' : 'Make admin'}
           </button>
           <button
-            onClick={() => toggleDeactivated.mutate()}
+            onClick={() => setShowDeactivateDialog(true)}
             disabled={toggleDeactivated.isPending}
             className={`px-3 py-1.5 text-sm rounded-md transition-colors disabled:opacity-50 ${
               user.isDeactivated
@@ -99,6 +102,21 @@ export function UserDetailPage() {
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showDeactivateDialog}
+        onConfirm={() => {
+          setShowDeactivateDialog(false)
+          toggleDeactivated.mutate()
+        }}
+        onCancel={() => setShowDeactivateDialog(false)}
+        title={user.isDeactivated ? 'Reactivate user' : 'Deactivate user'}
+        description={user.isDeactivated
+          ? `Are you sure you want to reactivate ${userId}?`
+          : `Are you sure you want to deactivate ${userId}? They will lose access to their account.`}
+        confirmLabel={user.isDeactivated ? 'Reactivate' : 'Deactivate'}
+        variant={user.isDeactivated ? 'warning' : 'danger'}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-5">

@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { touchPresence } from '@/modules/presence/service'
 import { waitForNotification } from '@/modules/sync/notifier'
 import { buildSyncResponse, getDeviceLastSyncBatch } from '@/modules/sync/service'
+import { decSyncConnections, incSyncConnections } from '@/shared/metrics'
 import { authMiddleware } from '@/shared/middleware/auth'
 
 export const syncRoute = new Hono<AuthEnv>()
@@ -51,9 +52,15 @@ syncRoute.get('/', async (c) => {
         || response.device_lists.changed.length > 0
 
       if (!hasChanges) {
-        const notified = await waitForNotification(auth.userId, timeout)
-        if (notified) {
-          response = buildSyncResponse(syncOpts)
+        incSyncConnections()
+        try {
+          const notified = await waitForNotification(auth.userId, timeout)
+          if (notified) {
+            response = buildSyncResponse(syncOpts)
+          }
+        }
+        finally {
+          decSyncConnections()
         }
       }
     }

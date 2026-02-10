@@ -1,5 +1,6 @@
 import { createRootRoute, createRoute } from '@tanstack/react-router'
 import { Layout } from './components/Layout'
+import { AuditLogPage } from './routes/audit-log'
 import { DashboardPage } from './routes/dashboard'
 import { LoginPage } from './routes/login'
 import { MediaPage } from './routes/media'
@@ -59,6 +60,12 @@ const tokensRoute = createRoute({
   component: TokensPage,
 })
 
+const auditLogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/audit-log',
+  component: AuditLogPage,
+})
+
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
@@ -68,4 +75,5 @@ export const routeTree = rootRoute.addChildren([
   roomDetailRoute,
   mediaRoute,
   tokensRoute,
+  auditLogRoute,
 ])

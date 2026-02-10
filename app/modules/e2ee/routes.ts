@@ -412,36 +412,48 @@ crossSigningRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const body = await c.req.json()
 
-  if (body.master_key) {
-    await db.insert(e2eeCrossSigningKeys).values({
-      userId: auth.userId,
-      keyType: 'master',
-      keyData: body.master_key,
-    }).onConflictDoUpdate({
-      target: [e2eeCrossSigningKeys.userId, e2eeCrossSigningKeys.keyType],
-      set: { keyData: body.master_key },
-    })
-  }
+  const keyTypes = [
+    { field: 'master_key', usage: 'master', dbType: 'master' as const },
+    { field: 'self_signing_key', usage: 'self_signing', dbType: 'self_signing' as const },
+    { field: 'user_signing_key', usage: 'user_signing', dbType: 'user_signing' as const },
+  ]
 
-  if (body.self_signing_key) {
-    await db.insert(e2eeCrossSigningKeys).values({
-      userId: auth.userId,
-      keyType: 'self_signing',
-      keyData: body.self_signing_key,
-    }).onConflictDoUpdate({
-      target: [e2eeCrossSigningKeys.userId, e2eeCrossSigningKeys.keyType],
-      set: { keyData: body.self_signing_key },
-    })
-  }
+  for (const { field, usage, dbType } of keyTypes) {
+    const keyData = body[field]
+    if (!keyData)
+      continue
 
-  if (body.user_signing_key) {
+    // Validate required fields
+    if (!keyData.keys || typeof keyData.keys !== 'object') {
+      return matrixError(c, 'M_INVALID_PARAM', `Missing or invalid "keys" in ${field}`)
+    }
+
+    if (!keyData.signatures || typeof keyData.signatures !== 'object' || Object.keys(keyData.signatures).length === 0) {
+      return matrixError(c, 'M_INVALID_PARAM', `Missing or empty "signatures" in ${field}`)
+    }
+
+    if (!Array.isArray(keyData.usage) || !keyData.usage.includes(usage)) {
+      return matrixError(c, 'M_INVALID_PARAM', `Invalid "usage" in ${field}, expected ["${usage}"]`)
+    }
+
+    // Validate exactly one ed25519 key
+    const ed25519Keys = Object.keys(keyData.keys).filter(k => k.startsWith('ed25519:'))
+    if (ed25519Keys.length !== 1) {
+      return matrixError(c, 'M_INVALID_PARAM', `Expected exactly one ed25519 key in ${field}, found ${ed25519Keys.length}`)
+    }
+
+    // Validate user_id matches authenticated user
+    if (keyData.user_id && keyData.user_id !== auth.userId) {
+      return matrixError(c, 'M_INVALID_PARAM', `user_id in ${field} does not match authenticated user`)
+    }
+
     await db.insert(e2eeCrossSigningKeys).values({
       userId: auth.userId,
-      keyType: 'user_signing',
-      keyData: body.user_signing_key,
+      keyType: dbType,
+      keyData,
     }).onConflictDoUpdate({
       target: [e2eeCrossSigningKeys.userId, e2eeCrossSigningKeys.keyType],
-      set: { keyData: body.user_signing_key },
+      set: { keyData },
     })
   }
 

@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { api } from '../api'
+import { ConfirmDialog } from '../components/confirm-dialog'
 
 interface OAuthToken {
   id: string
@@ -24,6 +26,7 @@ interface TokensResponse {
 
 export function TokensPage() {
   const queryClient = useQueryClient()
+  const [revokeTarget, setRevokeTarget] = useState<string | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['tokens'],
@@ -49,6 +52,20 @@ export function TokensPage() {
   return (
     <div>
       <h2 className="text-xl font-semibold text-white mb-6">Tokens</h2>
+
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        onConfirm={() => {
+          if (revokeTarget)
+            revokeMutation.mutate(revokeTarget)
+          setRevokeTarget(null)
+        }}
+        onCancel={() => setRevokeTarget(null)}
+        title="Revoke token"
+        description="Are you sure you want to revoke this token? The user will be signed out of this session."
+        confirmLabel="Revoke"
+        variant="danger"
+      />
 
       <div className="space-y-8">
         <section>
@@ -86,7 +103,7 @@ export function TokensPage() {
                         <td className="px-4 py-3 text-gray-400">{new Date(token.expiresAt).toLocaleString()}</td>
                         <td className="px-4 py-3 text-right">
                           <button
-                            onClick={() => revokeMutation.mutate(token.id)}
+                            onClick={() => setRevokeTarget(token.id)}
                             disabled={revokeMutation.isPending}
                             className="px-2 py-1 text-xs bg-red-600/20 border border-red-500/30 text-red-400 hover:bg-red-600/30 rounded transition-colors disabled:opacity-50"
                           >
@@ -133,7 +150,7 @@ export function TokensPage() {
                         <td className="px-4 py-3 text-gray-400">{new Date(token.createdAt).toLocaleString()}</td>
                         <td className="px-4 py-3 text-right">
                           <button
-                            onClick={() => revokeMutation.mutate(token.id)}
+                            onClick={() => setRevokeTarget(token.id)}
                             disabled={revokeMutation.isPending}
                             className="px-2 py-1 text-xs bg-red-600/20 border border-red-500/30 text-red-400 hover:bg-red-600/30 rounded transition-colors disabled:opacity-50"
                           >

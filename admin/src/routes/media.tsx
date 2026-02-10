@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api'
+import { ConfirmDialog } from '../components/confirm-dialog'
 
 interface MediaItem {
   id: string
@@ -29,6 +30,7 @@ function formatBytes(bytes: number): string {
 
 export function MediaPage() {
   const [offset, setOffset] = useState(0)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery({
@@ -48,6 +50,21 @@ export function MediaPage() {
   return (
     <div>
       <h2 className="text-xl font-semibold text-white mb-6">Media</h2>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onConfirm={() => {
+          if (deleteTarget)
+            deleteMutation.mutate(deleteTarget)
+          setDeleteTarget(null)
+        }}
+        onCancel={() => setDeleteTarget(null)}
+        title="Delete media"
+        description="Are you sure you want to delete this media item? This cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+      />
+
       <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -78,12 +95,7 @@ export function MediaPage() {
                         <td className="px-4 py-3 text-gray-400">{new Date(item.createdAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3 text-right">
                           <button
-                            onClick={() => {
-                              // eslint-disable-next-line no-alert
-                              if (confirm('Delete this media item?')) {
-                                deleteMutation.mutate(item.id)
-                              }
-                            }}
+                            onClick={() => setDeleteTarget(item.id)}
                             disabled={deleteMutation.isPending}
                             className="px-2 py-1 text-xs bg-red-600/20 border border-red-500/30 text-red-400 hover:bg-red-600/30 rounded transition-colors disabled:opacity-50"
                           >

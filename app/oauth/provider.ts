@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { cacheDel, cacheGet, cacheSet } from '@/cache'
 import { serverName, upstreamClientId, upstreamClientSecret, upstreamIssuer } from '@/config'
 import { db } from '@/db'
 import { accounts, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens } from '@/db/schema'
@@ -11,6 +12,8 @@ import { exchangeAuthCode, exchangeRefreshToken, signingJwk, toTokenResponse } f
 export const DEFAULT_CLIENT_ID = 'matrix'
 const issuer = `https://${serverName}/oauth`
 const authCallbackUrl = `https://${serverName}/oauth/auth/callback`
+
+const OAUTH_STATE_TTL = 600 // 10 minutes
 
 // ---- Upstream OIDC discovery (lazy-cached) ----
 
@@ -52,16 +55,6 @@ interface UpstreamAuthState {
   codeVerifier: string // PKCE verifier for upstream
   expiresAt: number
 }
-
-const upstreamAuthStates = new Map<string, UpstreamAuthState>()
-
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, value] of upstreamAuthStates) {
-    if (value.expiresAt < now)
-      upstreamAuthStates.delete(key)
-  }
-}, 5 * 60 * 1000)
 
 // ---- Helpers ----
 
@@ -109,16 +102,6 @@ interface ActionState {
   codeVerifier: string
   expiresAt: number
 }
-
-const actionStates = new Map<string, ActionState>()
-
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, value] of actionStates) {
-    if (value.expiresAt < now)
-      actionStates.delete(key)
-  }
-}, 5 * 60 * 1000)
 
 function deleteDevice(deviceId: string) {
   const device = db.select({ userId: devices.userId })
@@ -197,12 +180,12 @@ async function handleAccountAction(c: any, action: string) {
   const codeVerifier = randomBytes(32).toString('base64url')
   const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
-  actionStates.set(state, {
+  await cacheSet(`oauth:action:${state}`, {
     action,
     deviceId: c.req.query('device_id') || undefined,
     codeVerifier,
-    expiresAt: Date.now() + 10 * 60 * 1000,
-  })
+    expiresAt: Date.now() + OAUTH_STATE_TTL * 1000,
+  } satisfies ActionState, { ttl: OAUTH_STATE_TTL })
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -253,7 +236,7 @@ oauthApp.get('/auth', async (c) => {
   const codeVerifier = randomBytes(32).toString('base64url')
   const upstreamChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
 
-  upstreamAuthStates.set(upstreamState, {
+  await cacheSet(`oauth:upstream:${upstreamState}`, {
     clientId,
     redirectUri,
     state,
@@ -262,8 +245,8 @@ oauthApp.get('/auth', async (c) => {
     codeChallengeMethod,
     nonce,
     codeVerifier,
-    expiresAt: Date.now() + 10 * 60 * 1000,
-  })
+    expiresAt: Date.now() + OAUTH_STATE_TTL * 1000,
+  } satisfies UpstreamAuthState, { ttl: OAUTH_STATE_TTL })
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -293,8 +276,8 @@ oauthApp.get('/auth/callback', async (c) => {
   }
 
   // Determine flow: account action or OAuth authorization
-  const actionState = actionStates.get(state)
-  const authState = actionState ? null : upstreamAuthStates.get(state)
+  const actionState = await cacheGet<ActionState>(`oauth:action:${state}`)
+  const authState = actionState ? null : await cacheGet<UpstreamAuthState>(`oauth:upstream:${state}`)
 
   if (!actionState && !authState) {
     return c.json({ errcode: 'M_UNKNOWN', error: 'Invalid or expired upstream auth state' }, 400)
@@ -304,9 +287,9 @@ oauthApp.get('/auth/callback', async (c) => {
   const expiresAt = actionState?.expiresAt || authState!.expiresAt
 
   if (actionState)
-    actionStates.delete(state)
+    await cacheDel(`oauth:action:${state}`)
   else
-    upstreamAuthStates.delete(state)
+    await cacheDel(`oauth:upstream:${state}`)
 
   if (expiresAt < Date.now()) {
     return c.json({ errcode: 'M_UNKNOWN', error: 'Upstream auth state expired' }, 400)
