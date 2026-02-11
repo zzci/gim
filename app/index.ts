@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { cors } from 'hono/cors'
+import { inspectRoutes } from 'hono/dev'
 import { startCron } from '@/cron'
 import { sqlite } from '@/db'
 import { accountDataRoute, accountTokensRoute, deactivateRoute, profileRoute, pushRulesRoute, userFilterRoute, whoamiRoute } from '@/modules/account/routes'
@@ -54,101 +55,7 @@ async function run() {
   // Rate limiting on Matrix API + OAuth
   app.use('/_matrix/*', rateLimitMiddleware)
 
-  // Root — server info + supported API list
-  app.get('/', c => c.json({
-    server: 'gim',
-    version,
-    build: buildInfo,
-    domain: serverName,
-    apis: [
-      // Discovery
-      'GET /.well-known/matrix/client',
-      'GET /.well-known/matrix/server',
-      'GET /_matrix/client/versions',
-      'GET /_matrix/client/v3/capabilities',
-      // Auth
-      'GET /_matrix/client/v1/auth_metadata',
-      'GET/POST /_matrix/client/v3/login',
-      'POST /_matrix/client/v3/register',
-      'GET /_matrix/client/v3/login/sso/redirect',
-      'GET /_matrix/client/v3/login/sso/callback',
-      'POST /_matrix/client/v3/logout',
-      'POST /_matrix/client/v3/logout/all',
-      'POST /_matrix/client/v3/refresh',
-      // Account
-      'GET /_matrix/client/v3/account/whoami',
-      'POST /_matrix/client/v3/account/deactivate',
-      'GET/PUT /_matrix/client/v3/profile/:userId/displayname',
-      'GET/PUT /_matrix/client/v3/profile/:userId/avatar_url',
-      'GET/PUT /_matrix/client/v3/user/:id/account_data/:type',
-      'GET/POST /_matrix/client/v3/user/:id/filter',
-      'GET/PUT/DELETE /_matrix/client/v3/pushrules/',
-      'GET/POST/DELETE /_matrix/client/v3/user_tokens',
-      // Room
-      'POST /_matrix/client/v3/createRoom',
-      'POST /_matrix/client/v3/join/:roomIdOrAlias',
-      'GET /_matrix/client/v3/joined_rooms',
-      'GET/PUT/DELETE /_matrix/client/v3/directory/room/:roomAlias',
-      'POST /_matrix/client/v3/rooms/:roomId/join',
-      'POST /_matrix/client/v3/rooms/:roomId/leave',
-      'POST /_matrix/client/v3/rooms/:roomId/invite',
-      'POST /_matrix/client/v3/rooms/:roomId/kick',
-      'POST /_matrix/client/v3/rooms/:roomId/ban',
-      'POST /_matrix/client/v3/rooms/:roomId/unban',
-      'GET /_matrix/client/v3/rooms/:roomId/members',
-      'GET /_matrix/client/unstable/im.nheko.summary/rooms/:roomIdOrAlias/summary',
-      'GET /_matrix/client/v1/summary/rooms/:roomIdOrAlias/summary',
-      // Messages & State
-      'PUT /_matrix/client/v3/rooms/:roomId/send/:eventType/:txnId',
-      'GET /_matrix/client/v3/rooms/:roomId/messages',
-      'GET /_matrix/client/v3/rooms/:roomId/event/:eventId',
-      'PUT /_matrix/client/v3/rooms/:roomId/redact/:eventId/:txnId',
-      'GET/PUT /_matrix/client/v3/rooms/:roomId/state/:eventType/:stateKey',
-      'PUT /_matrix/client/v3/rooms/:roomId/typing/:userId',
-      'POST /_matrix/client/v3/rooms/:roomId/receipt/:receiptType/:eventId',
-      'POST /_matrix/client/v3/rooms/:roomId/read_markers',
-      'GET/PUT /_matrix/client/v3/rooms/:roomId/account_data/:type',
-      // Threads
-      'GET /_matrix/client/v1/rooms/:roomId/threads',
-      // Notifications & Sync
-      'GET /_matrix/client/v3/notifications',
-      'GET /_matrix/client/v3/pushers',
-      'POST /_matrix/client/v3/pushers/set',
-      'GET /_matrix/client/v3/sync',
-      'POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync',
-      // Presence
-      'GET/PUT /_matrix/client/v3/presence/:userId/status',
-      // VoIP
-      'GET /_matrix/client/v3/voip/turnServer',
-      'GET /_matrix/client/v1/rtc/transports',
-      // E2EE
-      'POST /_matrix/client/v3/keys/upload',
-      'POST /_matrix/client/v3/keys/query',
-      'POST /_matrix/client/v3/keys/claim',
-      'GET /_matrix/client/v3/keys/changes',
-      'POST /_matrix/client/v3/keys/device_signing/upload',
-      'POST /_matrix/client/v3/keys/signatures/upload',
-      'PUT /_matrix/client/v3/sendToDevice/:eventType/:txnId',
-      'GET/PUT/DELETE /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device',
-      // Devices
-      'GET /_matrix/client/v3/devices',
-      'GET/PUT/DELETE /_matrix/client/v3/devices/:deviceId',
-      // Media
-      'POST /_matrix/client/v1/media/upload',
-      'POST /_matrix/client/v1/media/create',
-      'GET /_matrix/client/v1/media/download/:serverName/:mediaId',
-      'GET /_matrix/client/v1/media/thumbnail/:serverName/:mediaId',
-      'GET /_matrix/client/v1/media/config',
-      'GET /_matrix/client/v1/media/preview_url',
-      // OAuth
-      'GET /oauth/.well-known/openid-configuration',
-      'GET /oauth/jwks',
-      'GET /oauth/auth',
-      'POST /oauth/token',
-      'POST /oauth/revoke',
-      'POST /oauth/register',
-    ],
-  }))
+  // Root — server info + supported API list (registered lazily after all routes mount)
 
   // Health checks
   app.get('/health', c => c.redirect('/health/live'))
@@ -286,6 +193,21 @@ async function run() {
 
   // Static files
   app.get('/public/*', serveStatic({ root: './' }))
+
+  // Root — server info + auto-generated API list from registered routes
+  const apis = inspectRoutes(app)
+    .filter(r => !r.isMiddleware && r.method !== 'ALL')
+    .reduce((acc, { method, path }) => {
+      const existing = acc.get(path)
+      if (existing)
+        existing.add(method)
+      else
+        acc.set(path, new Set([method]))
+      return acc
+    }, new Map<string, Set<string>>())
+
+  const apiList = [...apis.entries()].map(([path, methods]) => `${[...methods].join('/')} ${path}`)
+  app.get('/', c => c.json({ server: 'gim', version, build: buildInfo, domain: serverName, apis: apiList }))
 
   // Catch-all for unmatched routes — return Matrix 404 with CORS headers
   app.notFound(c => c.json({ errcode: 'M_UNRECOGNIZED', error: 'Unrecognized request' }, 404))
