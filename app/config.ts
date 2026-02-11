@@ -22,8 +22,9 @@ const upstreamClientSecret = process.env.IM_OIDC_CLIENT_SECRET || ''
 // Cache driver: 'memory' (default) or 'redis' (requires REDIS_URL)
 const cacheDriver = process.env.IM_CACHE_DRIVER || 'memory'
 
-// Logging format: 'json' for production, 'cli' for dev
+// Logging: format and level
 const logFormat = process.env.IM_LOG_FORMAT || (process.env.NODE_ENV === 'production' ? 'json' : 'cli')
+const logLevel = process.env.IM_LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug') // error, warn, info, http, verbose, debug, silly
 
 // Room membership limits (0 = unlimited)
 const maxRoomMembers = Number(process.env.IM_MAX_ROOM_MEMBERS) || 0
@@ -77,4 +78,4 @@ function loadBuildInfo(): BuildInfo {
 export const buildInfo = loadBuildInfo()
 export const poweredBy = 'gim'
 
-export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, livekitServiceUrl, logFormat, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }
+export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, livekitServiceUrl, logFormat, logLevel, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }

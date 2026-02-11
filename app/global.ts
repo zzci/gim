@@ -2,13 +2,10 @@
 
 import winston from 'winston'
 import { sleep } from 'bun'
-import { logFormat } from '@/config'
-
-const isDebug  = process.env.NODE_ENV !== 'dev' ? false : true
+import { logFormat, logLevel } from '@/config'
 
 declare global {
   var logger: winston.Logger
-  var isDebug: boolean
   var sleep: typeof import('bun').sleep
 }
 
@@ -31,7 +28,7 @@ const cliTransport = winston.format.combine(
 )
 
 const logger = winston.createLogger({
-  level: isDebug ? 'debug' : 'info',
+  level: logLevel,
   defaultMeta: { service: 'gim' },
   transports: [
     new winston.transports.Console({
@@ -41,5 +38,4 @@ const logger = winston.createLogger({
 })
 
 globalThis.logger = logger
-globalThis.isDebug = isDebug
 globalThis.sleep = sleep
