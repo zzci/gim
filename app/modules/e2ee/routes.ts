@@ -63,10 +63,6 @@ keysUploadRoute.post('/', async (c) => {
           eq(e2eeFallbackKeys.deviceId, auth.deviceId),
         )).run()
 
-        tx.delete(e2eeCrossSigningKeys).where(
-          eq(e2eeCrossSigningKeys.userId, auth.userId),
-        ).run()
-
         tx.delete(e2eeToDeviceMessages).where(and(
           eq(e2eeToDeviceMessages.userId, auth.userId),
           eq(e2eeToDeviceMessages.deviceId, auth.deviceId),
