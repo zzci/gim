@@ -479,7 +479,7 @@ signaturesUploadRoute.post('/', async (c) => {
       const dk = db.select().from(e2eeDeviceKeys).where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, keyId))).get()
 
       if (dk) {
-        const merged = { ...(dk.signatures as Record<string, Record<string, string>>), ...newSignatures }
+        const merged = { ...(dk.signatures as Record<string, Record<string, string>>) }
         for (const [sigUserId, sigs] of Object.entries(newSignatures) as [string, Record<string, string>][]) {
           merged[sigUserId] = { ...(merged[sigUserId] || {}), ...sigs }
         }
@@ -497,7 +497,7 @@ signaturesUploadRoute.post('/', async (c) => {
         const keyData = csk.keyData as any
         const keys = keyData.keys || {}
         if (Object.keys(keys).some((k: string) => k.includes(keyId) || keyId === k)) {
-          const mergedSigs = { ...(keyData.signatures || {}), ...newSignatures }
+          const mergedSigs = { ...(keyData.signatures || {}) }
           for (const [sigUserId, sigs] of Object.entries(newSignatures) as [string, Record<string, string>][]) {
             mergedSigs[sigUserId] = { ...(mergedSigs[sigUserId] || {}), ...sigs }
           }
