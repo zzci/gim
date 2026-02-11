@@ -53,7 +53,7 @@ accounts ─────────┬──── accountData
   │               │        │                 e2eeOneTimeKeys   (⚠ 缺少 FK)
   │               │        │                 e2eeFallbackKeys  (⚠ 缺少 FK)
   │               │        │                 e2eeToDeviceMessages (⚠ 缺少 FK)
-  │               ├──── e2eeCrossSigningKeys (⚠ 缺少 FK)
+  │               ├──── accountCrossSigningKeys (⚠ 缺少 FK)
   │               ├──── e2eeDehydratedDevices
   │               ├──── pushRules
   │               └──── presence
@@ -245,7 +245,7 @@ accounts ─────────┬──── accountData
 | keyId | TEXT | NOT NULL | 密钥 ID |
 | keyJson | TEXT (JSON) | | 密钥数据 |
 
-**e2eeCrossSigningKeys** — 交叉签名密钥
+**accountCrossSigningKeys** — 交叉签名密钥（账户级别）
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | userId | TEXT | PK | 用户 ID |

@@ -185,7 +185,7 @@ export const e2eeFallbackKeys = sqliteTable('e2ee_fallback_keys', {
   primaryKey({ columns: [table.userId, table.deviceId, table.algorithm] }),
 ])
 
-export const e2eeCrossSigningKeys = sqliteTable('e2ee_cross_signing_keys', {
+export const accountCrossSigningKeys = sqliteTable('account_cross_signing_keys', {
   userId: text('user_id').notNull(),
   keyType: text('key_type').notNull(), // master, self_signing, user_signing
   keyData: text('key_data', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),

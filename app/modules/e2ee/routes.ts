@@ -2,7 +2,7 @@ import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq, gt, lte } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountTokens, devices, e2eeCrossSigningKeys, e2eeDehydratedDevices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
+import { accountCrossSigningKeys, accountTokens, devices, e2eeDehydratedDevices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { notifyUser } from '@/modules/sync/notifier'
 import { verifyDeviceKeySignature } from '@/shared/helpers/verifyKeys'
@@ -294,7 +294,7 @@ keysQueryRoute.post('/', async (c) => {
       }
     }
 
-    const csKeys = db.select().from(e2eeCrossSigningKeys).where(eq(e2eeCrossSigningKeys.userId, userId)).all()
+    const csKeys = db.select().from(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, userId)).all()
 
     for (const csk of csKeys) {
       const keyData = csk.keyData as any
@@ -443,12 +443,12 @@ crossSigningRoute.post('/', async (c) => {
       return matrixError(c, 'M_INVALID_PARAM', `user_id in ${field} does not match authenticated user`)
     }
 
-    await db.insert(e2eeCrossSigningKeys).values({
+    await db.insert(accountCrossSigningKeys).values({
       userId: auth.userId,
       keyType: dbType,
       keyData,
     }).onConflictDoUpdate({
-      target: [e2eeCrossSigningKeys.userId, e2eeCrossSigningKeys.keyType],
+      target: [accountCrossSigningKeys.userId, accountCrossSigningKeys.keyType],
       set: { keyData },
     })
   }
@@ -490,7 +490,7 @@ signaturesUploadRoute.post('/', async (c) => {
         continue
       }
 
-      const csKeys = db.select().from(e2eeCrossSigningKeys).where(eq(e2eeCrossSigningKeys.userId, userId)).all()
+      const csKeys = db.select().from(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, userId)).all()
 
       let matched = false
       for (const csk of csKeys) {
@@ -501,9 +501,9 @@ signaturesUploadRoute.post('/', async (c) => {
           for (const [sigUserId, sigs] of Object.entries(newSignatures) as [string, Record<string, string>][]) {
             mergedSigs[sigUserId] = { ...(mergedSigs[sigUserId] || {}), ...sigs }
           }
-          db.update(e2eeCrossSigningKeys)
+          db.update(accountCrossSigningKeys)
             .set({ keyData: { ...keyData, signatures: mergedSigs } })
-            .where(and(eq(e2eeCrossSigningKeys.userId, userId), eq(e2eeCrossSigningKeys.keyType, csk.keyType)))
+            .where(and(eq(accountCrossSigningKeys.userId, userId), eq(accountCrossSigningKeys.keyType, csk.keyType)))
             .run()
           matched = true
           break

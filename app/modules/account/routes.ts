@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountData, accountFilters, accounts, accountTokens, devices, e2eeCrossSigningKeys, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
+import { accountCrossSigningKeys, accountData, accountFilters, accounts, accountTokens, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { getDefaultPushRules } from '@/modules/notification/service'
 import { notifyUser } from '@/modules/sync/notifier'
@@ -369,7 +369,7 @@ deactivateRoute.post('/', async (c) => {
     tx.delete(e2eeDeviceKeys).where(eq(e2eeDeviceKeys.userId, userId)).run()
     tx.delete(e2eeOneTimeKeys).where(eq(e2eeOneTimeKeys.userId, userId)).run()
     tx.delete(e2eeFallbackKeys).where(eq(e2eeFallbackKeys.userId, userId)).run()
-    tx.delete(e2eeCrossSigningKeys).where(eq(e2eeCrossSigningKeys.userId, userId)).run()
+    tx.delete(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, userId)).run()
 
     // Delete all devices
     tx.delete(devices).where(eq(devices.userId, userId)).run()
