@@ -22,6 +22,7 @@ import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRo
 import { syncRoute } from '@/modules/sync/routes'
 import { slidingSyncRoute } from '@/modules/sync/slidingRoutes'
 import { threadRoute } from '@/modules/thread/routes'
+import { rtcTransportsRoute, turnServerRoute } from '@/modules/voip/routes'
 import { oauthApp } from '@/oauth/provider'
 import { formatPrometheusMetrics } from '@/shared/metrics'
 import { rateLimitMiddleware } from '@/shared/middleware/rateLimit'
@@ -116,6 +117,9 @@ async function run() {
       'POST /_matrix/client/unstable/org.matrix.simplified_msc3575/sync',
       // Presence
       'GET/PUT /_matrix/client/v3/presence/:userId/status',
+      // VoIP
+      'GET /_matrix/client/v3/voip/turnServer',
+      'GET /_matrix/client/v1/rtc/transports',
       // E2EE
       'POST /_matrix/client/v3/keys/upload',
       'POST /_matrix/client/v3/keys/query',
@@ -229,6 +233,10 @@ async function run() {
   /* presence */
   app.route('/_matrix/client/v3/presence', presenceRoute)
 
+  /* voip */
+  app.route('/_matrix/client/v3/voip/turnServer', turnServerRoute)
+  app.route('/_matrix/client/v1/rtc/transports', rtcTransportsRoute)
+
   /* e2ee */
   app.route('/_matrix/client/v3/keys/query', keysQueryRoute)
   app.route('/_matrix/client/v3/keys/upload', keysUploadRoute)
@@ -238,8 +246,8 @@ async function run() {
   app.route('/_matrix/client/v3/keys/signatures/upload', signaturesUploadRoute)
   app.route('/_matrix/client/v3/sendToDevice', sendToDeviceRoute)
   // Stub: room_keys not supported, return M_NOT_FOUND so SDK handles gracefully
-  app.get('/_matrix/client/v3/room_keys/version', (c) => c.json({ errcode: 'M_NOT_FOUND', error: 'No backup found' }, 404))
-  app.get('/_matrix/client/v3/room_keys/version/:version', (c) => c.json({ errcode: 'M_NOT_FOUND', error: 'No backup found' }, 404))
+  app.get('/_matrix/client/v3/room_keys/version', c => c.json({ errcode: 'M_NOT_FOUND', error: 'No backup found' }, 404))
+  app.get('/_matrix/client/v3/room_keys/version/:version', c => c.json({ errcode: 'M_NOT_FOUND', error: 'No backup found' }, 404))
   app.route('/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device', dehydratedDeviceRoute)
 
   /* devices */

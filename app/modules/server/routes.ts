@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { serverName } from '@/config'
+import { livekitServiceUrl, serverName } from '@/config'
 
 export const wellKnowClientRoute = new Hono()
 
@@ -13,12 +13,16 @@ wellKnowClientRoute.get('/', async (c) => {
         issuer: `https://${serverName}`,
         account: `https://${serverName}/account/`,
       },
-      'org.matrix.msc4143.rtc_foci': [
-        {
-          type: 'livekit',
-          livekit_service_url: 'https://livekit-jwt.call.matrix.org',
-        },
-      ],
+      ...(livekitServiceUrl
+        ? {
+            'org.matrix.msc4143.rtc_foci': [
+              {
+                type: 'livekit',
+                livekit_service_url: livekitServiceUrl,
+              },
+            ],
+          }
+        : {}),
     }
     return c.json(data)
   }

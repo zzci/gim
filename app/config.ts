@@ -39,6 +39,14 @@ const pushGatewayUrl = process.env.IM_PUSH_GATEWAY_URL || ''
 // Application Service registration directory
 const asRegistrationDir = process.env.IM_AS_REGISTRATION_DIR || 'data/appservices'
 
+// TURN server (optional — for VoIP relay)
+const turnUris = process.env.IM_TURN_URIS || '' // comma-separated, e.g. "turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp"
+const turnSharedSecret = process.env.IM_TURN_SHARED_SECRET || ''
+const turnTtl = Number(process.env.IM_TURN_TTL) || 86400 // seconds
+
+// LiveKit / MatrixRTC (optional — for group calls via SFU)
+const livekitServiceUrl = process.env.IM_LIVEKIT_SERVICE_URL || '' // e.g. "https://livekit-jwt.call.matrix.org/livekit/jwt"
+
 // S3/R2 object storage (optional — falls back to local disk if not configured)
 const s3AccountId = process.env.S3_ACCOUNT_ID || ''
 const s3Bucket = process.env.S3_BUCKET_NAME || ''
@@ -50,4 +58,4 @@ const s3PublicUrl = process.env.S3_PUBLIC_URL || ''
 export const version = '0.1.0-beta.1'
 export const poweredBy = 'gim'
 
-export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, logFormat, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, upstreamClientId, upstreamClientSecret, upstreamIssuer }
+export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, livekitServiceUrl, logFormat, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }
