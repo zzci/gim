@@ -457,6 +457,13 @@ crossSigningRoute.post('/', async (c) => {
     })
   }
 
+  // Notify clients about cross-signing key changes
+  db.insert(e2eeDeviceListChanges).values({
+    userId: auth.userId,
+    ulid: generateUlid(),
+  }).run()
+  notifyUser(auth.userId)
+
   return c.json({})
 })
 
@@ -513,6 +520,13 @@ signaturesUploadRoute.post('/', async (c) => {
         failures[userId][keyId] = { errcode: 'M_NOT_FOUND', error: 'Key not found' }
       }
     }
+
+    // Notify clients about signature changes for this user
+    db.insert(e2eeDeviceListChanges).values({
+      userId,
+      ulid: generateUlid(),
+    }).run()
+    notifyUser(userId)
   }
 
   return c.json({ failures })

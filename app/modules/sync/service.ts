@@ -433,7 +433,6 @@ export function buildSyncResponse(opts: SyncOptions) {
       .where(gt(e2eeDeviceListChanges.ulid, sinceId))
       .all()
     changedUsers = [...new Set(changes.map(c => c.userId))]
-    changedUsers = changedUsers.filter(u => u !== opts.userId)
     if (changes.length > 0) {
       maxDeviceListUlid = changes.reduce((max, c) => c.ulid > max ? c.ulid : max, '')
     }
