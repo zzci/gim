@@ -56,7 +56,7 @@ const s3SecretAccessKey = process.env.S3_SECRET_ACCESS_KEY || ''
 const s3Region = process.env.S3_REGION || 'auto'
 const s3PublicUrl = process.env.S3_PUBLIC_URL || ''
 
-export const version = '0.1.0-beta.1'
+export const version = '0.4.0'
 
 interface BuildInfo { commit: string, commitFull: string, branch: string, buildTime: string }
 

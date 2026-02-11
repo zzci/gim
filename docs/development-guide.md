@@ -1,6 +1,6 @@
 # GIM 开发指南
 
-> 版本: 0.1.0-beta.1 | 最后更新: 2026-02
+> 版本: 0.4.0 | 最后更新: 2026-02-11
 
 ## 1. 环境准备
 
@@ -31,6 +31,7 @@ cp .env.example .env
 
 # 4. 初始化数据库
 bun run db:push    # 开发环境直接同步 schema
+# 注意: 服务启动时会自动执行 drizzle 迁移（auto-migrate）
 
 # 5. 启动开发服务器
 bun run dev        # 启动在 http://localhost:3000
@@ -413,10 +414,17 @@ sqlite3 data/gim.db "SELECT * FROM accounts LIMIT 10"
 | `DB_PATH` | data/gim.db | 否 | SQLite 文件路径 |
 | `IM_CACHE_DRIVER` | memory | 否 | 缓存驱动 (memory/redis) |
 | `IM_LOG_FORMAT` | 自动 | 否 | 日志格式 (json/cli) |
+| `IM_LOG_LEVEL` | 自动 | 否 | 日志级别 (error/warn/info/http/verbose/debug/silly) |
 | `IM_MAX_ROOM_MEMBERS` | 0 | 否 | 房间成员上限 (0=无限) |
 | `IM_MAX_ROOMS_PER_USER` | 0 | 否 | 每用户房间上限 (0=无限) |
 | `IM_MEDIA_QUOTA_MB` | 0 | 否 | 媒体配额 MB (0=无限) |
 | `IM_MEDIA_UPLOADS_PER_HOUR` | 0 | 否 | 每小时上传限制 (0=无限) |
+| `IM_PUSH_GATEWAY_URL` | — | 否 | 服务级默认推送网关 URL |
+| `IM_AS_REGISTRATION_DIR` | data/appservices | 否 | Application Service 注册 YAML 目录 |
+| `IM_TURN_URIS` | — | 否 | TURN 服务器 URI（逗号分隔） |
+| `IM_TURN_SHARED_SECRET` | — | 否 | TURN 共享密钥（HMAC-SHA1） |
+| `IM_TURN_TTL` | 86400 | 否 | TURN 凭证有效期（秒） |
+| `IM_LIVEKIT_SERVICE_URL` | — | 否 | LiveKit JWT 服务 URL（MatrixRTC） |
 | `REDIS_URL` | — | 仅 redis 驱动 | Redis 连接地址 |
 | `S3_ACCOUNT_ID` | — | 否 | S3/R2 账号 ID |
 | `S3_BUCKET_NAME` | — | 否 | S3 桶名称 |

@@ -1,6 +1,6 @@
 # GIM 数据库设计文档
 
-> 版本: 0.1.0-beta.1 | 最后更新: 2026-02
+> 版本: 0.4.0 | 最后更新: 2026-02-11
 
 ## 1. 数据库选型与配置
 
@@ -46,8 +46,8 @@ const db = drizzle(sqlite, { schema })
 ### 2.1 ER 图（逻辑关系）
 
 ```
-accounts ─────────┬──── accountData
-  │               ├──── accountTokens      (⚠ 缺少 FK)
+accounts ─────────┬──── accountData (streamId 用于增量同步)
+  │               ├──── accountTokens      (FK → accounts ✅)
   │               ├──── accountFilters
   │               ├──── devices ──────────── e2eeDeviceKeys    (⚠ 缺少 FK)
   │               │        │                 e2eeOneTimeKeys   (⚠ 缺少 FK)
@@ -56,6 +56,7 @@ accounts ─────────┬──── accountData
   │               ├──── accountCrossSigningKeys (⚠ 缺少 FK)
   │               ├──── e2eeDehydratedDevices
   │               ├──── pushRules
+  │               ├──── pushers            (FK → accounts ✅)
   │               └──── presence
   │
   ├── roomMembers ◄────── rooms ──── roomAliases
@@ -65,12 +66,14 @@ accounts ─────────┬──── accountData
   │                    eventsAttachments
   │
   ├── oauthTokens       (⚠ 缺少 FK)
-  ├── media              (⚠ 缺少 FK)
+  ├── media              (FK → accounts ✅)
   ├── mediaDeletions
   ├── pushNotifications  (⚠ 缺少 FK)
   ├── readReceipts       (⚠ 缺少 FK)
   ├── typingNotifications
-  └── e2eeDeviceListChanges (⚠ 缺少 FK)
+  ├── e2eeDeviceListChanges (⚠ 缺少 FK)
+  ├── appservices        (独立表)
+  └── adminAuditLog      (独立表)
 ```
 
 ### 2.2 完整表结构
@@ -92,11 +95,12 @@ accounts ─────────┬──── accountData
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | token | TEXT | PK | Token 值 |
-| userId | TEXT | NOT NULL | 用户 ID（⚠ 无 FK） |
+| userId | TEXT | NOT NULL, FK→accounts | 用户 ID |
 | deviceId | TEXT | NOT NULL | 设备 ID |
 | name | TEXT | NOT NULL | Token 名称 |
 | createdAt | INTEGER | NOT NULL | 创建时间 |
 | lastUsedAt | INTEGER | nullable | 最后使用时间 |
+| **索引:** | (userId) | | 用户 token 列表 |
 
 **accountData** — 用户/房间级别配置数据
 | 列名 | 类型 | 约束 | 说明 |
@@ -104,7 +108,8 @@ accounts ─────────┬──── accountData
 | userId | TEXT | PK, FK→accounts | 用户 ID |
 | type | TEXT | PK | 数据类型 |
 | roomId | TEXT | PK, DEFAULT '' | 房间 ID（空=全局） |
-| content | TEXT (JSON) | | 数据内容 |
+| content | TEXT (JSON) | NOT NULL | 数据内容 |
+| streamId | TEXT | NOT NULL | ULID，用于增量同步排序 |
 
 **accountFilters** — 同步过滤器
 | 列名 | 类型 | 约束 | 说明 |
@@ -320,6 +325,62 @@ accounts ─────────┬──── accountData
 | enabled | INTEGER | DEFAULT 1 | 是否启用 |
 | priority | INTEGER | DEFAULT 0 | 优先级 |
 
+#### 推送器
+
+**pushers** — 推送端点注册
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PK | ULID |
+| userId | TEXT | NOT NULL, FK→accounts | 用户 ID |
+| deviceId | TEXT | nullable | 绑定设备 |
+| kind | TEXT | NOT NULL | http 等推送类型 |
+| appId | TEXT | NOT NULL | 应用标识 |
+| pushkey | TEXT | NOT NULL | 推送密钥（设备 token） |
+| appDisplayName | TEXT | nullable | 应用显示名 |
+| deviceDisplayName | TEXT | nullable | 设备显示名 |
+| profileTag | TEXT | nullable | 配置标签 |
+| lang | TEXT | nullable | 语言 |
+| data | TEXT (JSON) | NOT NULL | 推送端点配置（url 等） |
+| enabled | INTEGER | DEFAULT 1 | 是否启用 |
+| createdAt | INTEGER | NOT NULL | 创建时间 |
+| **索引:** | (userId) | | 用户推送器列表 |
+
+#### Application Service
+
+**appservices** — Application Service 注册
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PK | ULID |
+| asId | TEXT | NOT NULL, UNIQUE | AS 声明的标识符 |
+| url | TEXT | nullable | AS 回调 URL |
+| asToken | TEXT | NOT NULL, UNIQUE | AS → HS 认证 Token |
+| hsToken | TEXT | NOT NULL | HS → AS 认证 Token |
+| senderLocalpart | TEXT | NOT NULL | AS 发送者用户名 |
+| namespaces | TEXT (JSON) | NOT NULL | 命名空间（users/aliases/rooms 正则） |
+| rateLimited | INTEGER | DEFAULT 0 | 是否限流 |
+| protocols | TEXT (JSON) | nullable | 支持的协议列表 |
+| lastStreamPosition | TEXT | DEFAULT '' | 最后推送的事件位置（ULID） |
+| lastTxnId | INTEGER | DEFAULT 0 | 最后事务 ID |
+| failedAttempts | INTEGER | DEFAULT 0 | 连续失败次数（指数退避） |
+| lastFailureAt | INTEGER | nullable | 最后失败时间 |
+| lastSuccessAt | INTEGER | nullable | 最后成功时间 |
+| createdAt | INTEGER | NOT NULL | 创建时间 |
+
+#### 审计日志
+
+**adminAuditLog** — 管理操作审计日志
+| 列名 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PK | ULID |
+| adminUserId | TEXT | NOT NULL | 操作管理员 |
+| action | TEXT | NOT NULL | 操作类型（deactivate_user, delete_media 等） |
+| targetType | TEXT | NOT NULL | 目标类型（user, room, media, token） |
+| targetId | TEXT | NOT NULL | 目标 ID |
+| details | TEXT (JSON) | nullable | 操作详情 |
+| ipAddress | TEXT | nullable | 操作者 IP |
+| createdAt | INTEGER | NOT NULL | 操作时间 |
+| **索引:** | (adminUserId), (createdAt) | | 按管理员/时间查询 |
+
 #### 临时数据
 
 **readReceipts** — 已读回执
@@ -358,23 +419,29 @@ accounts ─────────┬──── accountData
 | eventsTimeline | idx_events_timeline_room | (roomId, id) |
 | eventsAttachments | idx_attachments_event | (eventId) |
 | eventsAttachments | idx_attachments_media | (mediaId) |
+| oauthTokens | oauth_tokens_account_id_idx | (accountId) |
+| oauthTokens | oauth_tokens_grant_id_idx | (grantId) |
+| oauthTokens | oauth_tokens_device_id_idx | (deviceId) |
+| e2eeToDeviceMessages | e2ee_to_device_user_device_idx | (userId, deviceId) |
+| e2eeOneTimeKeys | e2ee_otk_user_device_claimed_idx | (userId, deviceId, claimed) |
+| e2eeDeviceListChanges | e2ee_device_list_changes_ulid_idx | (ulid) |
+| roomMembers | room_members_user_membership_idx | (userId, membership) |
+| media | media_user_id_idx | (userId) |
+| mediaDeletions | media_deletions_completed_at_idx | (completedAt) |
+| pushNotifications | push_notifications_user_id_idx | (userId) |
+| accountTokens | account_tokens_user_id_idx | (userId) |
+| pushers | pushers_user_id_idx | (userId) |
+| adminAuditLog | admin_audit_log_admin_user_id_idx | (adminUserId) |
+| adminAuditLog | admin_audit_log_created_at_idx | (createdAt) |
 
-### 3.2 缺失索引（建议添加）
+### 3.2 待评估索引
+
+大部分建议索引已在 Phase 1 中添加。剩余待评估：
 
 | 表 | 建议索引 | 用途 | 优先级 |
 |----|---------|------|--------|
-| **oauthTokens** | (type, accountId) | 按类型和用户查询 token | 高 |
-| **oauthTokens** | (expiresAt) | 过期清理 cron | 高 |
-| **oauthTokens** | (grantId) | 按 Grant 吊销关联 token | 高 |
-| **e2eeToDeviceMessages** | (userId, deviceId) | 接收者查询 | 高 |
-| **e2eeOneTimeKeys** | (userId, deviceId, claimed) | OTK 认领 | 高 |
-| **e2eeDeviceListChanges** | (userId) | 用户设备变更查询 | 中 |
-| **media** | (userId) | 用户配额统计 | 中 |
-| **mediaDeletions** | (completedAt) | 待处理删除查询 | 中 |
-| **pushNotifications** | (userId, read) | 未读通知查询 | 中 |
+| **oauthTokens** | (expiresAt) | 过期清理 cron | 低 |
 | **pushNotifications** | (roomId, userId) | 房间内通知查询 | 低 |
-| **accountTokens** | (userId) | 用户 token 列表 | 低 |
-| **roomMembers** | (userId, membership) | 用户房间列表 | 中 |
 
 ### 3.3 索引添加的预估影响
 
@@ -404,20 +471,19 @@ accounts ─────────┬──── accountData
 | presence.userId | → | accounts.id |
 | devices.userId | → | accounts.id |
 
-### 4.2 缺失外键（建议评估）
+### 4.2 外键修复状态
 
-| 子表 | 列 | 应参考 | 风险 | 建议 |
-|------|---|-------|------|------|
-| accountTokens.userId | → | accounts.id | 用户删除后孤儿 token | **添加 FK** |
-| rooms.creatorId | → | accounts.id | 低风险（创建者信息仅展示） | 可选 |
-| e2eeDeviceKeys.(userId,deviceId) | → | devices.(userId,id) | cron 已处理清理 | 可选（有 cron 兜底） |
-| e2eeOneTimeKeys | → | devices | cron 已处理清理 | 可选 |
-| e2eeToDeviceMessages | → | devices | cron 已处理清理 | 可选 |
-| media.userId | → | accounts.id | 用户删除后孤儿文件 | **添加 FK** |
-| oauthTokens.accountId | → | accounts.id | 用户删除后孤儿 token | **添加 FK** |
-| pushNotifications.userId | → | accounts.id | 用户删除后孤儿通知 | 可选 |
+| 子表 | 列 | 应参考 | 状态 |
+|------|---|-------|------|
+| accountTokens.userId | → | accounts.id | ✅ Phase 1 已添加 |
+| media.userId | → | accounts.id | ✅ Phase 1 已添加 |
+| pushers.userId | → | accounts.id | ✅ 创建时已有 |
+| oauthTokens.accountId | → | accounts.id | ⚠️ 待处理（accountId 存 localpart 非完整 Matrix ID） |
+| rooms.creatorId | → | accounts.id | 可选（低风险） |
+| e2eeDeviceKeys | → | devices | 可选（有 cron 兜底） |
+| pushNotifications.userId | → | accounts.id | 可选 |
 
-> **设计权衡：** E2EE 相关表故意不加 FK，因为 cron 任务已处理孤儿清理，且 FK 约束会增加写入开销。但 accountTokens、media、oauthTokens 应该添加 FK 以保证数据一致性。
+> **设计权衡：** E2EE 相关表故意不加 FK，因为 cron 任务已处理孤儿清理，且 FK 约束会增加写入开销。
 
 ---
 

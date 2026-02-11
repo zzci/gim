@@ -1,6 +1,6 @@
 # GIM 改进路线图
 
-> 版本: 0.2.0 | 最后更新: 2026-02-10
+> 版本: 0.4.0 | 最后更新: 2026-02-11
 
 ## 1. 已发现问题清单
 
@@ -179,6 +179,8 @@ auth middleware 添加 5 分钟节流，仅在超过阈值时才更新 lastSeenA
 | 缩略图生成 | — | 中 | ⏭️ 跳过 (E2EE — 服务端无法解密媒体) |
 | URL 预览 | — | 低 | ⏭️ 跳过 (E2EE — 服务端无法读取消息内容) |
 | 密码登录 | — | 低 | ⏭️ 跳过 (SSO only) |
+| Application Service | — | 中 | ✅ Phase 4.5 — AS 注册、事件推送、命名空间、Ping |
+| VoIP TURN | — | 中 | ✅ Phase 4.5 — TURN 凭证、LiveKit RTC |
 
 #### 4.3 管理面板增强 ✅
 
@@ -206,6 +208,52 @@ auth middleware 添加 5 分钟节流，仅在超过阈值时才更新 lastSeenA
 - [M3] 管理面板 Token 改用 httpOnly Cookie
 - [M6] presence 变更通知共享房间成员
 ```
+
+---
+
+### Phase 4.5: 协议扩展与运维增强 ✅ 已完成
+
+**目标：** 扩展协议覆盖，改善开发与部署体验
+
+#### 4.5.1 Application Service 支持 ✅
+
+- YAML 注册文件导入 (`data/appservices/*.yaml`)
+- `appservices` 数据表（DB 持久化 + 内存编译缓存）
+- 命名空间匹配（users/aliases/rooms 正则）
+- 事件推送事务（`PUT /_matrix/app/v1/transactions/:txnId`）
+- 指数退避重试（最大 5 分钟）
+- Ping 端点 (`POST /_matrix/client/v1/appservice/:id/ping`)
+- Cron 每 5 秒处理事务队列
+- 自动创建 AS 发送者用户
+- `IM_AS_REGISTRATION_DIR` 配置项
+
+#### 4.5.2 VoIP / MatrixRTC 支持 ✅
+
+- TURN 凭证端点 (`GET /_matrix/client/v3/voip/turnServer`)
+  - HMAC-SHA1 临时凭证生成（共享密钥认证）
+  - 可配置 TTL、URI 列表
+- MatrixRTC 传输端点 (`GET /_matrix/client/v1/rtc/transports`, MSC4143)
+  - LiveKit SFU 集成
+- 环境变量: `IM_TURN_URIS`, `IM_TURN_SHARED_SECRET`, `IM_TURN_TTL`, `IM_LIVEKIT_SERVICE_URL`
+
+#### 4.5.3 E2EE 稳定性修复 ✅
+
+- 交叉签名密钥上传不再删除已有密钥 (`e638d2a`)
+- 交叉签名表重命名 `e2eeCrossSigningKeys` → `accountCrossSigningKeys` (`3d38484`)
+- 设备签名合并而非替换 (`f959fa7`, `1a72b7a`)
+- 交叉签名和签名变更通知客户端 (`867bc33`)
+- `room_keys/version` 存根返回 M_NOT_FOUND（SDK 优雅处理）
+
+#### 4.5.4 开发与运维增强 ✅
+
+- 启动时自动执行数据库迁移 (`d87fddd`)
+- Docker 构建时自动生成 `build.json`（git commit/branch/时间） (`1e3d553`)
+- 根路由自动从注册的 Hono 路由生成 API 列表 (`d596794`)
+- 直接运行 TypeScript 源码替代构建打包 (`24d7632`)
+- `IM_LOG_LEVEL` 可配置日志级别 (`d3de5f4`)
+- 增量同步返回 account_data 变更 (`16771a8`)
+- 账号过滤器上传去重 (`91fe81b`)
+- 空 stateKey 的 PUT state 修复 (`1f46d3a`)
 
 ---
 
@@ -251,7 +299,7 @@ auth middleware 添加 5 分钟节流，仅在超过阈值时才更新 lastSeenA
 |------|----------|--------|------|------|
 | N+1 查询 | 6 处 | 6 | 0 | ✅ Phase 2 全部消除 |
 | 缺失事务 | 3 处 | 3 | 0 | ✅ Phase 1 全部修复 |
-| 内存状态 | 5 处 | 3 | 2 | ✅ SSO/OAuth → cache / 限流器+Notifier 保持进程内 |
+| 内存状态 | 5 处 | 3 | 2 | ✅ SSO/OAuth → cache + AS 注册编译缓存 / 限流器+Notifier 保持进程内 |
 | 缺失索引 | 12 个 | 12 | 0 | ✅ Phase 1 全部补全 |
 | 缺失外键 | 3 个 | 2 | 1 | oauthTokens.accountId 格式差异待处理 |
 | 缺失错误处理 | 3 处 | 1 | 2 | cron ✅ / 缓存层、S3 操作待处理 |
@@ -283,5 +331,6 @@ v0.1.1  ─── ✅ 索引补全 + 事务修复 + Cron 错误处理 + 外键 +
 v0.1.2  ─── ✅ N+1 查询消除 + UNION ALL + 批量同步 + 缓存层 + 配额原子化
 v0.2.0  ─── ✅ 状态外部化 + Prometheus + 安全修复 (M1, M3, M6) + 管理面板增强 (L2-L4)
 v0.3.0  ─── ✅ Sliding Sync + 线程消息 + Docker 支持 + 推送网关 + 管理面板增强 + 测试覆盖
+v0.4.0  ─── ✅ Application Service + VoIP/TURN/LiveKit + E2EE 修复 + 自动迁移 + 运维增强
 v1.0.0  ─── 生产就绪（PG 可选、完整测试、运维工具）
 ```

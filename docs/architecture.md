@@ -1,6 +1,6 @@
 # GIM 系统架构文档
 
-> 版本: 0.1.0-beta.1 | 最后更新: 2026-02
+> 版本: 0.4.0 | 最后更新: 2026-02-11
 
 ## 1. 项目概述
 
@@ -19,6 +19,7 @@ GIM 是一个基于 Matrix 协议的即时通讯服务端实现，采用现代 T
 | 日志 | Winston | 结构化日志，多格式输出 |
 | 定时任务 | Croner | 轻量 Cron 调度器 |
 | 对象存储 | AWS SDK (S3/R2) | 兼容 Cloudflare R2 |
+| YAML 解析 | yaml | Application Service 注册文件 |
 | 管理面板 | React 19 + TanStack + Tailwind v4 | 现代 SPA 技术栈 |
 
 ---
@@ -52,9 +53,9 @@ GIM 是一个基于 Matrix 协议的即时通讯服务端实现，采用现代 T
 │  ┌────────┐ ┌──────┐ ┌───────┐ ┌────────┐ ┌──────┐        │
 │  │account │ │device│ │ media │ │presence│ │notify│        │
 │  └────────┘ └──────┘ └───────┘ └────────┘ └──────┘        │
-│  ┌────────┐ ┌──────┐                                       │
-│  │ admin  │ │server│                                       │
-│  └────────┘ └──────┘                                       │
+│  ┌────────┐ ┌──────┐ ┌───────┐ ┌──────┐ ┌────────────┐    │
+│  │ admin  │ │server│ │thread │ │ voip │ │ appservice │    │
+│  └────────┘ └──────┘ └───────┘ └──────┘ └────────────┘    │
 └──────────────────────┬──────────────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
@@ -185,6 +186,10 @@ app/modules/{name}/
           ┌──────┐      ┌───────┐
           │admin │      │ media │  (独立模块)
           └──────┘      └───────┘
+
+          ┌──────┐      ┌──────────┐    ┌──────┐
+          │thread│      │appservice│    │ voip │  (独立模块)
+          └──────┘      └──────────┘    └──────┘
 ```
 
 ### 4.3 各模块职责
@@ -202,7 +207,10 @@ app/modules/{name}/
 | **media** | `/_matrix/media/v3/*` | 文件上传/下载、配额管理 | media, mediaDeletions |
 | **presence** | `/_matrix/client/v3/presence/*` | 在线状态管理 | presence |
 | **notification** | `/_matrix/client/v3/notifications` | 推送通知记录与查询 | pushNotifications, pushRules |
-| **admin** | `/admin/api/*` | 管理面板 API | 读取多张表 |
+| **thread** | `/_matrix/client/v1/rooms/*/threads` | 线程消息查询 (MSC3440) | eventsTimeline |
+| **voip** | `/_matrix/client/v3/voip/*`, `v1/rtc/*` | TURN 凭证、MatrixRTC LiveKit 传输 | 无（配置驱动） |
+| **appservice** | `/_matrix/client/v1/appservice/*` | Application Service 桥接/Bot 支持 | appservices |
+| **admin** | `/admin/api/*` | 管理面板 API | 读取多张表, adminAuditLog |
 | **oauth** | `/oauth/*` | OIDC Provider (MSC2965) | oauthTokens |
 
 ---
@@ -350,6 +358,7 @@ app/modules/{name}/
 | cleanupExpiredTokens | 启动时 + 每 6 小时 | 清理过期 OAuth Token |
 | processMediaDeletions | 每 5 分钟 | 处理媒体软删除队列（S3/本地） |
 | expirePresence | 每 1 分钟 | 过期不活跃用户的在线状态 |
+| processAppServiceTransactions | 每 5 秒 | 向已注册的 Application Service 推送事件 |
 
 ---
 
@@ -400,19 +409,22 @@ gim/
 │   │   ├── provider.ts           # OIDC Provider（MSC2965）
 │   │   ├── tokens.ts             # Token 签发与管理
 │   │   └── account.ts            # 用户自动创建
-│   ├── modules/                  # 12 个业务模块
+│   ├── modules/                  # 15 个业务模块
 │   │   ├── account/routes.ts
 │   │   ├── admin/{routes,middleware}.ts
+│   │   ├── appservice/{routes,config,service}.ts
 │   │   ├── auth/routes.ts
 │   │   ├── device/routes.ts
 │   │   ├── e2ee/routes.ts
 │   │   ├── media/routes.ts
 │   │   ├── message/{routes,service}.ts
-│   │   ├── notification/{routes,service}.ts
+│   │   ├── notification/{routes,service,pusherRoutes,pushGateway}.ts
 │   │   ├── presence/{routes,service}.ts
 │   │   ├── room/{routes,service}.ts
 │   │   ├── server/routes.ts
-│   │   └── sync/{routes,service,notifier}.ts
+│   │   ├── sync/{routes,service,notifier,slidingRoutes,slidingService}.ts
+│   │   ├── thread/{routes,service}.ts
+│   │   └── voip/routes.ts
 │   ├── shared/
 │   │   ├── middleware/           # 通用中间件
 │   │   ├── helpers/              # 事件查询、格式化、权限检查
