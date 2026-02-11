@@ -28,7 +28,7 @@ import { formatPrometheusMetrics } from '@/shared/metrics'
 import { rateLimitMiddleware } from '@/shared/middleware/rateLimit'
 import { requestIdMiddleware } from '@/shared/middleware/requestId'
 import { requestLogMiddleware } from '@/shared/middleware/requestLog'
-import { corsOrigins, listenHost, listenPort, serverName, version } from './config'
+import { buildInfo, corsOrigins, listenHost, listenPort, serverName, version } from './config'
 
 import '@/global'
 
@@ -58,6 +58,7 @@ async function run() {
   app.get('/', c => c.json({
     server: 'gim',
     version,
+    build: buildInfo,
     domain: serverName,
     apis: [
       // Discovery
@@ -301,7 +302,7 @@ async function run() {
     idleTimeout: 60, // must exceed sync long-poll timeout (28s) with margin for consecutive requests
   })
 
-  logger.info('server_started', { host: listenHost, port: listenPort, serverName, version })
+  logger.info('server_started', { host: listenHost, port: listenPort, serverName, version, ...buildInfo })
 
   async function shutdown(signal: string) {
     logger.warn('server_shutdown', { signal })

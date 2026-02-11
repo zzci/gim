@@ -56,6 +56,25 @@ const s3Region = process.env.S3_REGION || 'auto'
 const s3PublicUrl = process.env.S3_PUBLIC_URL || ''
 
 export const version = '0.1.0-beta.1'
+
+interface BuildInfo { commit: string, commitFull: string, branch: string, buildTime: string }
+
+const defaultBuildInfo: BuildInfo = { commit: 'dev', commitFull: 'dev', branch: 'dev', buildTime: new Date().toISOString() }
+
+function loadBuildInfo(): BuildInfo {
+  const file = Bun.file('./build.json')
+  if (!file.size)
+    return defaultBuildInfo
+  try {
+    // eslint-disable-next-line ts/no-require-imports
+    return require('../build.json')
+  }
+  catch {
+    return defaultBuildInfo
+  }
+}
+
+export const buildInfo = loadBuildInfo()
 export const poweredBy = 'gim'
 
 export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, livekitServiceUrl, logFormat, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }
