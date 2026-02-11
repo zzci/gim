@@ -179,6 +179,18 @@ userFilterRoute.use('/*', authMiddleware)
 userFilterRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const body = await c.req.json()
+  const json = JSON.stringify(body)
+
+  // Reuse existing filter if identical JSON already exists for this user
+  const existing = db.select({ id: accountFilters.id, filterJson: accountFilters.filterJson })
+    .from(accountFilters)
+    .where(eq(accountFilters.userId, auth.userId))
+    .all()
+    .find(r => JSON.stringify(r.filterJson) === json)
+
+  if (existing) {
+    return c.json({ filter_id: existing.id })
+  }
 
   const row = db.insert(accountFilters).values({
     userId: auth.userId,
