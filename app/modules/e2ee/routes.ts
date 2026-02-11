@@ -30,23 +30,37 @@ keysUploadRoute.post('/', async (c) => {
       return matrixError(c, 'M_INVALID_PARAM', 'Device key signature verification failed')
     }
 
-    const existing = db.select({ keys: e2eeDeviceKeys.keys }).from(e2eeDeviceKeys).where(and(eq(e2eeDeviceKeys.userId, auth.userId), eq(e2eeDeviceKeys.deviceId, auth.deviceId))).get()
+    const existing = db.select({ keys: e2eeDeviceKeys.keys, signatures: e2eeDeviceKeys.signatures }).from(e2eeDeviceKeys).where(and(eq(e2eeDeviceKeys.userId, auth.userId), eq(e2eeDeviceKeys.deviceId, auth.deviceId))).get()
 
     const keysChanged = !existing || JSON.stringify(existing.keys) !== JSON.stringify(dk.keys)
+
+    // When keys haven't changed, merge new signatures with existing ones
+    // to preserve the device self-signature when cross-signing adds its signature
+    let mergedSignatures = dk.signatures || {}
+    if (!keysChanged && existing) {
+      const existingSigs = existing.signatures as Record<string, Record<string, string>>
+      mergedSignatures = { ...existingSigs }
+      for (const [sigUserId, sigs] of Object.entries(dk.signatures || {}) as [string, Record<string, string>][]) {
+        (mergedSignatures as Record<string, Record<string, string>>)[sigUserId] = {
+          ...((mergedSignatures as Record<string, Record<string, string>>)[sigUserId] || {}),
+          ...sigs,
+        }
+      }
+    }
 
     await db.insert(e2eeDeviceKeys).values({
       userId: auth.userId,
       deviceId: auth.deviceId,
       algorithms: dk.algorithms || [],
       keys: dk.keys || {},
-      signatures: dk.signatures || {},
+      signatures: mergedSignatures,
       displayName: dk.unsigned?.device_display_name || null,
     }).onConflictDoUpdate({
       target: [e2eeDeviceKeys.userId, e2eeDeviceKeys.deviceId],
       set: {
         algorithms: dk.algorithms || [],
         keys: dk.keys || {},
-        signatures: dk.signatures || {},
+        signatures: mergedSignatures,
         displayName: dk.unsigned?.device_display_name || null,
       },
     })
