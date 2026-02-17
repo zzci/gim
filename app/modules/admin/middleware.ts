@@ -13,13 +13,14 @@ export async function adminMiddleware(c: Context, next: Next) {
     c.req.raw.headers.set('Authorization', `Bearer ${cookieToken}`)
   }
 
-  // First run standard auth
-  await authMiddleware(c, async () => {})
+  // First run standard auth and preserve its response when auth fails
+  const authResult = await authMiddleware(c, async () => {})
+  if (authResult)
+    return authResult
 
-  // Check if auth was set (authMiddleware may have returned an error)
   const auth = c.get('auth') as { userId: string } | undefined
   if (!auth)
-    return
+    return matrixForbidden(c, 'Authentication required')
 
   // Check admin flag
   const account = db.select({ admin: accounts.admin }).from(accounts).where(eq(accounts.id, auth.userId)).get()
