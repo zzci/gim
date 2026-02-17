@@ -10,7 +10,7 @@ import { loadAppServiceRegistrations } from '@/modules/appservice/config'
 import { appServicePingRoute } from '@/modules/appservice'
 import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ssoCallbackRoute, ssoRedirectRoute } from '@/modules/auth'
 
-import { deviceRoute } from '@/modules/device/routes'
+import { deviceRoute } from '@/modules/device'
 import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee'
 import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRoute, mediaThumbnailRoute, mediaUploadRoute } from '@/modules/media/routes'
 import { messageRouter } from '@/modules/message/routes'
