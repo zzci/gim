@@ -15,7 +15,7 @@ import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRo
 import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRoute, mediaThumbnailRoute, mediaUploadRoute } from '@/modules/media'
 import { messageRouter } from '@/modules/message'
 import { pusherRoute } from '@/modules/notification/pusherRoutes'
-import { notificationsRoute } from '@/modules/notification/routes'
+import { notificationsRoute } from '@/modules/notification'
 import { presenceRoute } from '@/modules/presence/routes'
 import { createRoomRoute, joinedRoomsRoute, joinRoute, roomAliasRoute, roomMembershipRouter, roomSummaryRoute } from '@/modules/room/routes'
 // Module imports

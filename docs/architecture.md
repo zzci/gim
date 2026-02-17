@@ -42,7 +42,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 | device | `app/modules/device/index.ts` | 设备列表、详情、更新、删除 |
 | media | `app/modules/media/index.ts` | upload/create/download/thumbnail/config/preview |
 | presence | `app/modules/presence/routes.ts` | presence 状态读写 |
-| notification | `app/modules/notification/routes.ts` | 通知查询 |
+| notification | `app/modules/notification/index.ts` | 通知查询 |
 | pusher | `app/modules/notification/pusherRoutes.ts` | pushers 设置/查询 |
 | thread | `app/modules/thread/routes.ts` | MSC3440 thread roots |
 | voip | `app/modules/voip/routes.ts` | TURN 与 MatrixRTC transports |
