@@ -23,6 +23,7 @@ export interface TokenResult {
   token_type: string
   expires_in: number
   scope: string
+  device_id?: string
   id_token?: string
   /** Internal only — not exposed in HTTP responses */
   accountId: string
@@ -162,6 +163,7 @@ function createTokenPair(
     token_type: 'Bearer',
     expires_in: ACCESS_TOKEN_TTL,
     scope,
+    device_id: deviceId!,
     accountId,
   }
 
@@ -279,9 +281,15 @@ export function exchangeRefreshToken(
     .run()
 
   const accountId = row.accountId!
-  const scope = row.scope || 'openid'
+  let scope = row.scope || 'openid'
   const clientId = row.clientId || 'gim-direct'
   const grantId = row.grantId || undefined
+
+  // Preserve device_id from the old token — even if scope doesn't contain it
+  // (handles tokens created before the device_id-in-scope fix)
+  if (row.deviceId && !scope.includes('urn:matrix:client:device:')) {
+    scope = `${scope} urn:matrix:client:device:${row.deviceId}`
+  }
 
   return createTokenPair(accountId, scope, clientId, grantId)
 }
