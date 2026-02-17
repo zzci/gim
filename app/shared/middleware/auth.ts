@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono'
 import { and, eq } from 'drizzle-orm'
-import { serverName } from '@/config'
+import { allowQueryAccessToken, serverName } from '@/config'
 import { db } from '@/db'
 import { accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
 import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
@@ -34,7 +34,9 @@ function extractToken(c: Context): string | null {
   if (auth?.startsWith('Bearer ')) {
     return auth.slice(7)
   }
-  // Also support access_token query parameter (legacy)
+  if (!allowQueryAccessToken)
+    return null
+  // Legacy compatibility: allow access_token query parameter only when explicitly enabled
   const query = c.req.query('access_token')
   return query ?? null
 }

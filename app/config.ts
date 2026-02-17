@@ -3,6 +3,8 @@ const listenHost = process.env.IM_HOST || '0.0.0.0'
 const serverName = process.env.IM_SERVER_NAME || 'localhost'
 const cookieSecret = process.env.IM_COOKIE_SECRET || 'dev-cookie-secret'
 const corsOrigins = process.env.IM_CORS_ORIGINS || '*'
+const trustProxyHeaders = process.env.IM_TRUST_PROXY_HEADERS === 'true'
+const allowQueryAccessToken = process.env.IM_ALLOW_QUERY_ACCESS_TOKEN === 'true'
 
 if (cookieSecret === 'dev-cookie-secret') {
   if (process.env.NODE_ENV === 'production') {
@@ -78,4 +80,4 @@ function loadBuildInfo(): BuildInfo {
 export const buildInfo = loadBuildInfo()
 export const poweredBy = 'gim'
 
-export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, livekitServiceUrl, logFormat, logLevel, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }
+export { allowQueryAccessToken, asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, listenHost, listenPort, livekitServiceUrl, logFormat, logLevel, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, trustProxyHeaders, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }

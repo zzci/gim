@@ -1,4 +1,5 @@
 import type { Context, Next } from 'hono'
+import { trustProxyHeaders } from '@/config'
 import { getRegistrationByAsToken } from '@/modules/appservice/config'
 
 // In-memory sliding window rate limiter — intentionally kept in-memory for performance.
@@ -29,9 +30,15 @@ export async function rateLimitMiddleware(c: Context, next: Next) {
     }
   }
 
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+  // Trust proxy-provided IP headers only when explicitly configured.
+  const anonymousKey = authHeader?.startsWith('Bearer ')
+    ? `token:${authHeader.slice(7, 23)}`
+    : 'unknown'
+  const ip = trustProxyHeaders
+    ? c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
     || c.req.header('x-real-ip')
-    || 'unknown'
+    || anonymousKey
+    : anonymousKey
 
   const now = Date.now()
   const entry = windows.get(ip)
