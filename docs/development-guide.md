@@ -350,7 +350,7 @@ bun run examples:test
 
 ### 5.1 常用查询模式
 
-```typescript
+```text
 import { db } from '@/db'
 import { accounts, rooms, roomMembers } from '@/db/schema'
 import { eq, and, desc } from 'drizzle-orm'
@@ -381,7 +381,7 @@ await db.transaction(async (tx) => {
   await tx.insert(eventsTimeline).values(event)
   await tx.update(currentRoomState)
     .set({ eventId: event.id })
-    .where(...)
+    // .where(...) 省略实际条件
 })
 ```
 
