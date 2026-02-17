@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto'
 import { Database } from 'bun:sqlite'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
-import { accounts, oauthTokens } from '../app/db/schema'
+import { accounts, appservices, oauthTokens } from '../app/db/schema'
 import { BASE_URL, DB_PATH, SERVER_NAME, TEST_USERS, TOKENS_PATH } from './config'
 
 async function main() {
@@ -21,6 +21,60 @@ async function main() {
   // Connect to SQLite directly
   const sqlite = new Database(DB_PATH)
   const db = drizzle({ client: sqlite })
+  const testAsId = 'test-as'
+  const testAsToken = 'as_test_token_12345'
+  const testHsToken = 'hs_test_token_12345'
+  const testAsSenderLocalpart = '_test_as_bot'
+  const testAsUserRegex = '@_test_as_.*'
+  const testAsSenderUserId = `@${testAsSenderLocalpart}:${SERVER_NAME}`
+
+  // Ensure AS registration required by appservice tests exists and stays up to date.
+  const existingAs = db.select().from(appservices).where(eq(appservices.asId, testAsId)).get()
+  if (!existingAs) {
+    db.insert(appservices).values({
+      asId: testAsId,
+      asToken: testAsToken,
+      hsToken: testHsToken,
+      senderLocalpart: testAsSenderLocalpart,
+      namespaces: {
+        users: [{ exclusive: true, regex: testAsUserRegex }],
+        aliases: [],
+        rooms: [],
+      },
+    }).run()
+    console.log(`Created appservice registration ${testAsId}`)
+  }
+  else {
+    db.update(appservices).set({
+      asToken: testAsToken,
+      hsToken: testHsToken,
+      senderLocalpart: testAsSenderLocalpart,
+      namespaces: {
+        users: [{ exclusive: true, regex: testAsUserRegex }],
+        aliases: [],
+        rooms: [],
+      },
+    }).where(eq(appservices.id, existingAs.id)).run()
+    console.log(`Updated appservice registration ${testAsId}`)
+  }
+
+  // Ensure AS sender account exists.
+  const existingAsSender = db.select().from(accounts).where(eq(accounts.id, testAsSenderUserId)).get()
+  if (!existingAsSender) {
+    db.insert(accounts).values({
+      id: testAsSenderUserId,
+      admin: false,
+      displayname: testAsSenderLocalpart,
+    }).run()
+    console.log(`Created appservice sender account ${testAsSenderUserId}`)
+  }
+  else {
+    db.update(accounts).set({
+      admin: false,
+      displayname: testAsSenderLocalpart,
+    }).where(eq(accounts.id, testAsSenderUserId)).run()
+    console.log(`Updated appservice sender account ${testAsSenderUserId}`)
+  }
 
   for (const u of TEST_USERS) {
     const userId = `@${u.localpart}:${SERVER_NAME}`

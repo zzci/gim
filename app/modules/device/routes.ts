@@ -1,5 +1,5 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens } from '@/db/schema'
@@ -15,7 +15,11 @@ deviceRoute.use('/*', authMiddleware)
 deviceRoute.get('/', async (c) => {
   const auth = c.get('auth')
 
-  const rows = db.select().from(devices).where(eq(devices.userId, auth.userId)).all()
+  const rows = db.select()
+    .from(devices)
+    .where(eq(devices.userId, auth.userId))
+    .orderBy(desc(devices.lastSeenAt), desc(devices.createdAt))
+    .all()
 
   return c.json({
     devices: rows.map(d => ({

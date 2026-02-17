@@ -201,16 +201,46 @@ export function reloadRegistrations(): void {
 
 // --- Lookups ---
 
+function cacheRegistration(compiled: CompiledRegistration): void {
+  registrationsById.set(compiled.id, compiled)
+  registrationsByAsId.set(compiled.asId, compiled)
+  registrationsByAsToken.set(compiled.asToken, compiled)
+}
+
+function hydrateRegistrationFromDb(row: typeof appservices.$inferSelect | undefined): CompiledRegistration | undefined {
+  if (!row)
+    return undefined
+  const compiled = compileRow(row)
+  cacheRegistration(compiled)
+  ensureAppServiceUser(`@${compiled.senderLocalpart}:${serverName}`)
+  return compiled
+}
+
 export function getRegistrationByAsToken(token: string): CompiledRegistration | undefined {
-  return registrationsByAsToken.get(token)
+  const cached = registrationsByAsToken.get(token)
+  if (cached)
+    return cached
+
+  const row = db.select().from(appservices).where(eq(appservices.asToken, token)).get()
+  return hydrateRegistrationFromDb(row)
 }
 
 export function getRegistrationByAsId(asId: string): CompiledRegistration | undefined {
-  return registrationsByAsId.get(asId)
+  const cached = registrationsByAsId.get(asId)
+  if (cached)
+    return cached
+
+  const row = db.select().from(appservices).where(eq(appservices.asId, asId)).get()
+  return hydrateRegistrationFromDb(row)
 }
 
 export function getRegistrationById(id: string): CompiledRegistration | undefined {
-  return registrationsById.get(id)
+  const cached = registrationsById.get(id)
+  if (cached)
+    return cached
+
+  const row = db.select().from(appservices).where(eq(appservices.id, id)).get()
+  return hydrateRegistrationFromDb(row)
 }
 
 export function getRegistrations(): CompiledRegistration[] {
@@ -228,6 +258,10 @@ export function findInterestedServices(event: {
   roomId: string
   stateKey?: string | null
 }, roomAliases: string[]): CompiledRegistration[] {
+  if (registrationsById.size === 0) {
+    rebuildCache()
+  }
+
   const interested: CompiledRegistration[] = []
 
   for (const reg of registrationsById.values()) {
@@ -260,6 +294,10 @@ export function findInterestedServices(event: {
 }
 
 export function isUserInExclusiveNamespace(userId: string): CompiledRegistration | undefined {
+  if (registrationsById.size === 0) {
+    rebuildCache()
+  }
+
   for (const reg of registrationsById.values()) {
     for (const entry of reg.namespaces.users) {
       if (entry.exclusive && entry.regex.test(userId)) {

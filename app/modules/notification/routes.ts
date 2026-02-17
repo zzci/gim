@@ -3,6 +3,7 @@ import { and, desc, eq, lt } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { pushNotifications, readReceipts } from '@/db/schema'
+import { parseEventId } from '@/shared/helpers/eventQueries'
 import { queryEventById } from '@/shared/helpers/eventQueries'
 import { formatEvent } from '@/shared/helpers/formatEvent'
 import { authMiddleware } from '@/shared/middleware/auth'
@@ -74,7 +75,7 @@ notificationsRoute.get('/', async (c) => {
   // Build response
   const result: Array<Record<string, unknown>> = []
   for (const row of rows) {
-    const event = queryEventById(row.eventId)
+    const event = queryEventById(parseEventId(row.eventId))
 
     if (!event)
       continue
@@ -84,7 +85,7 @@ notificationsRoute.get('/', async (c) => {
     if (!read) {
       const receiptEventId = receiptMap.get(row.roomId)
       if (receiptEventId) {
-        const receiptEvent = queryEventById(receiptEventId)
+        const receiptEvent = queryEventById(parseEventId(receiptEventId))
         if (receiptEvent && receiptEvent.originServerTs >= event.originServerTs) {
           read = true
         }

@@ -21,13 +21,16 @@ function parseRow(r: any) {
 }
 
 export function getThreadSummary(roomId: string, rootEventId: string, userId: string): ThreadSummary {
+  const normalizedRootEventId = rootEventId.startsWith('$') ? rootEventId.slice(1) : rootEventId
+  const relatedEventId = `$${normalizedRootEventId}`
+
   // Count thread replies
   const countRow = sqlite.prepare(`
     SELECT COUNT(*) as cnt FROM events_timeline
     WHERE room_id = ?
-      AND json_extract(content, '$.m.relates_to.rel_type') = 'm.thread'
-      AND json_extract(content, '$.m.relates_to.event_id') = ?
-  `).get(roomId, `$${rootEventId}`) as any
+      AND json_extract(content, '$."m.relates_to".rel_type') = 'm.thread'
+      AND json_extract(content, '$."m.relates_to".event_id') = ?
+  `).get(roomId, relatedEventId) as any
 
   const count = countRow?.cnt ?? 0
 
@@ -36,11 +39,11 @@ export function getThreadSummary(roomId: string, rootEventId: string, userId: st
     SELECT id, room_id, sender, type, content, origin_server_ts, unsigned
     FROM events_timeline
     WHERE room_id = ?
-      AND json_extract(content, '$.m.relates_to.rel_type') = 'm.thread'
-      AND json_extract(content, '$.m.relates_to.event_id') = ?
+      AND json_extract(content, '$."m.relates_to".rel_type') = 'm.thread'
+      AND json_extract(content, '$."m.relates_to".event_id') = ?
     ORDER BY id DESC
     LIMIT 1
-  `).get(roomId, `$${rootEventId}`) as any
+  `).get(roomId, relatedEventId) as any
 
   const latest_event = latestRow ? formatEvent(parseRow(latestRow)) : null
 
@@ -49,10 +52,10 @@ export function getThreadSummary(roomId: string, rootEventId: string, userId: st
     SELECT 1 FROM events_timeline
     WHERE room_id = ?
       AND sender = ?
-      AND json_extract(content, '$.m.relates_to.rel_type') = 'm.thread'
-      AND json_extract(content, '$.m.relates_to.event_id') = ?
+      AND json_extract(content, '$."m.relates_to".rel_type') = 'm.thread'
+      AND json_extract(content, '$."m.relates_to".event_id') = ?
     LIMIT 1
-  `).get(roomId, userId, `$${rootEventId}`) as any
+  `).get(roomId, userId, relatedEventId) as any
 
   const current_user_participated = !!participatedRow
 
@@ -77,26 +80,26 @@ export function getThreadRoots(
 
   if (include === 'participated') {
     rootQuery = `
-      SELECT DISTINCT json_extract(content, '$.m.relates_to.event_id') as root_event_id
+      SELECT DISTINCT json_extract(content, '$."m.relates_to".event_id') as root_event_id
       FROM events_timeline
       WHERE room_id = ?
-        AND json_extract(content, '$.m.relates_to.rel_type') = 'm.thread'
-        AND json_extract(content, '$.m.relates_to.event_id') IN (
-          SELECT DISTINCT json_extract(et2.content, '$.m.relates_to.event_id')
+        AND json_extract(content, '$."m.relates_to".rel_type') = 'm.thread'
+        AND json_extract(content, '$."m.relates_to".event_id') IN (
+          SELECT DISTINCT json_extract(et2.content, '$."m.relates_to".event_id')
           FROM events_timeline et2
           WHERE et2.room_id = ?
             AND et2.sender = ?
-            AND json_extract(et2.content, '$.m.relates_to.rel_type') = 'm.thread'
+            AND json_extract(et2.content, '$."m.relates_to".rel_type') = 'm.thread'
         )
     `
     params.push(roomId, userId)
   }
   else {
     rootQuery = `
-      SELECT DISTINCT json_extract(content, '$.m.relates_to.event_id') as root_event_id
+      SELECT DISTINCT json_extract(content, '$."m.relates_to".event_id') as root_event_id
       FROM events_timeline
       WHERE room_id = ?
-        AND json_extract(content, '$.m.relates_to.rel_type') = 'm.thread'
+        AND json_extract(content, '$."m.relates_to".rel_type') = 'm.thread'
     `
   }
 
