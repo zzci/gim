@@ -23,7 +23,7 @@ import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRo
 import { syncRoute } from '@/modules/sync'
 import { slidingSyncRoute } from '@/modules/sync/slidingRoutes'
 import { threadRoute } from '@/modules/thread'
-import { rtcTransportsRoute, turnServerRoute } from '@/modules/voip/routes'
+import { rtcTransportsRoute, turnServerRoute } from '@/modules/voip'
 import { oauthApp } from '@/oauth/provider'
 import { formatPrometheusMetrics } from '@/shared/metrics'
 import { rateLimitMiddleware } from '@/shared/middleware/rateLimit'
