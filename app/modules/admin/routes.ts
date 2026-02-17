@@ -33,6 +33,14 @@ function getAdminContext(c: { get: (key: string) => unknown, req: { header: (nam
 
 export const adminRoute = new Hono()
 
+function parsePagination(c: { req: { query: (name: string) => string | undefined } }, defaultLimit = 50) {
+  const rawLimit = Number(c.req.query('limit') || defaultLimit)
+  const rawOffset = Number(c.req.query('offset') || 0)
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 200) : defaultLimit
+  const offset = Number.isFinite(rawOffset) ? Math.max(Math.trunc(rawOffset), 0) : 0
+  return { limit, offset }
+}
+
 // POST /api/login — validate token and set httpOnly cookie
 adminRoute.post('/api/login', async (c) => {
   const body = await c.req.json<{ token: string }>()
@@ -76,6 +84,7 @@ adminRoute.post('/api/login', async (c) => {
 
   setCookie(c, 'admin_token', token, {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'Strict',
     path: '/admin',
     maxAge: 7 * 24 * 60 * 60, // 7 days
@@ -88,6 +97,7 @@ adminRoute.post('/api/login', async (c) => {
 adminRoute.post('/api/logout', (c) => {
   setCookie(c, 'admin_token', '', {
     httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'Strict',
     path: '/admin',
     maxAge: 0,
@@ -115,8 +125,7 @@ adminRoute.get('/api/stats', (c) => {
 
 // GET /api/users — Paginated user list
 adminRoute.get('/api/users', (c) => {
-  const limit = Number(c.req.query('limit') || 50)
-  const offset = Number(c.req.query('offset') || 0)
+  const { limit, offset } = parsePagination(c)
   const search = c.req.query('search')
 
   // Use prefix match for @user:server format (can use primary key index)
@@ -195,8 +204,7 @@ adminRoute.put('/api/users/:userId', async (c) => {
 
 // GET /api/rooms — Paginated room list
 adminRoute.get('/api/rooms', (c) => {
-  const limit = Number(c.req.query('limit') || 50)
-  const offset = Number(c.req.query('offset') || 0)
+  const { limit, offset } = parsePagination(c)
   const search = c.req.query('search')
 
   // Use prefix match for !room:server format (can use primary key index)
@@ -256,8 +264,7 @@ adminRoute.get('/api/devices', (c) => {
 
 // GET /api/media — List media
 adminRoute.get('/api/media', (c) => {
-  const limit = Number(c.req.query('limit') || 50)
-  const offset = Number(c.req.query('offset') || 0)
+  const { limit, offset } = parsePagination(c)
   const type = c.req.query('type')
 
   const where = type ? like(media.contentType, `%${type}%`) : undefined
@@ -320,8 +327,7 @@ adminRoute.delete('/api/tokens/:tokenId', (c) => {
 
 // GET /api/audit-log — Paginated audit log
 adminRoute.get('/api/audit-log', (c) => {
-  const limit = Number(c.req.query('limit') || 50)
-  const offset = Number(c.req.query('offset') || 0)
+  const { limit, offset } = parsePagination(c)
 
   const rows = db
     .select()
