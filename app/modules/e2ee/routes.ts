@@ -10,6 +10,19 @@ import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
 import { generateUlid } from '@/utils/tokens'
 
+function envFlagEnabled(value?: string): boolean {
+  if (!value)
+    return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
+function shouldStrictlyRejectDeviceKeySignatureFailure(): boolean {
+  return process.env.NODE_ENV === 'production'
+    || envFlagEnabled(process.env.IM_E2EE_STRICT_SIGNATURE_VERIFY)
+    || envFlagEnabled(process.env.IM_STRICT_DEVICE_KEY_SIGNATURE_VERIFY)
+}
+
 // --- Keys Upload ---
 
 export const keysUploadRoute = new Hono<AuthEnv>()
@@ -27,7 +40,8 @@ keysUploadRoute.post('/', async (c) => {
     const sigResult = verifyDeviceKeySignature(dk, auth.userId, auth.deviceId)
     if (!sigResult.valid) {
       logger.warn('device_key_signature_failed', { userId: auth.userId, deviceId: auth.deviceId, reason: sigResult.reason })
-      return matrixError(c, 'M_INVALID_PARAM', 'Device key signature verification failed')
+      if (shouldStrictlyRejectDeviceKeySignatureFailure())
+        return matrixError(c, 'M_INVALID_PARAM', 'Device key signature verification failed')
     }
 
     const existing = db.select({ keys: e2eeDeviceKeys.keys, signatures: e2eeDeviceKeys.signatures }).from(e2eeDeviceKeys).where(and(eq(e2eeDeviceKeys.userId, auth.userId), eq(e2eeDeviceKeys.deviceId, auth.deviceId))).get()

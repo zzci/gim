@@ -7,7 +7,7 @@ import {
   e2eeOneTimeKeys,
   e2eeToDeviceMessages,
 } from '@/db/schema'
-import { getMaxEventId } from '@/shared/helpers/eventQueries'
+import { getMaxEventId, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
 
 interface SlidingSyncList {
@@ -241,43 +241,17 @@ function parseStateRow(row: any): any {
 }
 
 function getRoomTimeline(roomId: string, limit: number, after?: string): any[] {
-  let query: string
-  let params: any[]
+  if (limit <= 0)
+    return []
 
   if (after) {
-    query = `
-      SELECT id, room_id, sender, type, NULL as state_key, content, origin_server_ts, unsigned
-      FROM events_timeline
-      WHERE room_id = ? AND id > ?
-      ORDER BY id DESC
-      LIMIT ?
-    `
-    params = [roomId, after, limit]
-  }
-  else {
-    query = `
-      SELECT id, room_id, sender, type, NULL as state_key, content, origin_server_ts, unsigned
-      FROM events_timeline
-      WHERE room_id = ?
-      ORDER BY id DESC
-      LIMIT ?
-    `
-    params = [roomId, limit]
+    // Incremental updates should mirror /sync semantics and include both state + timeline events.
+    return queryRoomEvents(roomId, { after, order: 'asc', limit })
   }
 
-  const rows = sqlite.prepare(query).all(...params) as any[]
-  rows.reverse()
-
-  return rows.map(row => ({
-    id: row.id,
-    roomId: row.room_id,
-    sender: row.sender,
-    type: row.type,
-    stateKey: row.state_key,
-    content: typeof row.content === 'string' ? JSON.parse(row.content) : row.content,
-    originServerTs: row.origin_server_ts,
-    unsigned: row.unsigned ? (typeof row.unsigned === 'string' ? JSON.parse(row.unsigned) : row.unsigned) : null,
-  }))
+  const events = queryRoomEvents(roomId, { order: 'desc', limit })
+  events.reverse()
+  return events
 }
 
 function getRoomNotificationCount(roomId: string, userId: string): number {
