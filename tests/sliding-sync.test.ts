@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { getAlice, getBob, txnId } from './helpers'
 
+const BASE_URL = process.env.GIM_URL || 'http://localhost:3000'
+
 describe('Sliding Sync (MSC3575)', () => {
   test('initial sync returns rooms sorted by recency', async () => {
     const a = await getAlice()
@@ -318,7 +320,7 @@ describe('Sliding Sync (MSC3575)', () => {
   })
 
   test('versions endpoint advertises sliding sync', async () => {
-    const res = await fetch('http://localhost:3000/_matrix/client/versions')
+    const res = await fetch(`${BASE_URL}/_matrix/client/versions`)
     const data = await res.json() as any
     expect(data.unstable_features['org.matrix.simplified_msc3575']).toBe(true)
   })
