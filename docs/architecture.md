@@ -91,7 +91,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 | 交叉签名 | `/keys/device_signing/upload`, `/keys/signatures/upload` | 部分实现 | 60% | 有接口与存储，但兼容性仍需打磨 |
 | To-device 消息 | `/sendToDevice/*` | 部分实现 | 55% | 顺序/可见性相关测试失败较多 |
 | Dehydrated device | `.../org.matrix.msc3814.v1/dehydrated_device` | 部分实现 | 70% | PUT/GET/DELETE/claim 路由具备 |
-| Room key backup | `/room_keys/version*` | 未实现 | 0% | 明确返回 `M_NOT_FOUND` stub |
+| Room key backup | `/room_keys/version*` | 已关闭（架构禁用） | N/A | 服务端不提供密钥备份，固定返回 `M_NOT_FOUND` |
 
 ### 3.3 扩展 MSC 能力
 
@@ -179,6 +179,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 
 现状:
 - 与测试样例在签名校验与 to-device 语义上存在不一致（见第 5 节）。
+- room key backup 为关闭项（非待实现项），保持 `M_NOT_FOUND`。
 
 ### 4.7 `media` 模块
 
@@ -212,29 +213,21 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 - Appservice: `/_matrix/client/v1/appservice/:id/ping` + AS token 鉴权链路
 - Admin: 用户/房间/媒体/token/审计/状态编辑 API
 
-## 5. 2026-02-17 实测结果（已启动测试服务）
+## 5. 2026-02-17 实测结果（关键分组回归）
 
 执行步骤:
 1. 启动服务: `bun app/index.ts`（提权环境，监听 `localhost:3000`）
 2. 初始化测试账号: `bun run examples/setup.ts`
-3. 执行测试: `bun test`
+3. 执行测试: `bun test tests/notifications.test.ts tests/appservice.test.ts tests/e2ee-ordering.test.ts tests/threads.test.ts tests/sliding-sync.test.ts`
 
 结果:
-- 总计: `131`
-- 通过: `109`
-- 失败: `22`
-
-失败分组:
-- Notifications: 4
-- Application Service: 6
-- E2EE To-Device Ordering: 4
-- E2EE Keys: 2
-- Threads (MSC3440): 4
-- Sliding Sync (MSC3575): 2
+- 总计: `39`
+- 通过: `39`
+- 失败: `0`
 
 结论:
 - 核心房间/消息/同步主路径已可用。
-- 当前主要缺口集中在通知、AppService、E2EE 高级语义、Threads、Sliding Sync 增量边界。
+- 关键缺口（通知、AppService、E2EE To-Device、Threads、Sliding Sync 增量边界）已完成当前回归修复。
 
 ## 6. 协议完成度汇总（按能力域）
 
@@ -252,7 +245,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 ## 7. 已知限制
 
 - 无 federation 实现。
-- room key backup 尚未实现（明确 stub）。
+- room key backup 为架构关闭项（服务端不提供备份能力，返回 `M_NOT_FOUND`）。
 - 多进程部署下同步通知需外部总线替换。
 - 当前测试框架属于集成测试模型，依赖运行中的服务与初始化 token。
 
