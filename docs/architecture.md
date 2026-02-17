@@ -32,7 +32,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 | 模块 | 路由入口 | 职责 |
 |---|---|---|
 | server | `app/modules/server/routes.ts` | `/.well-known`、`/versions`、`/capabilities` |
-| auth | `app/modules/auth/routes.ts` | 登录、登出、SSO、refresh |
+| auth | `app/modules/auth/index.ts` | 登录、登出、SSO、refresh |
 | account | `app/modules/account/index.ts` | whoami、profile、account_data、user filter、push rules、user tokens、deactivate |
 | room | `app/modules/room/routes.ts` | create/join/invite/leave/kick/ban、alias、summary |
 | message | `app/modules/message/routes.ts` | send、messages、event、state、redact、typing、receipt、context |
@@ -253,7 +253,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 
 - 入口: `app/index.ts`
 - 协议发现: `app/modules/server/routes.ts`
-- 认证: `app/modules/auth/routes.ts`, `app/oauth/provider.ts`
+- 认证: `app/modules/auth/index.ts`, `app/oauth/provider.ts`
 - 房间/消息: `app/modules/room/routes.ts`, `app/modules/message/routes.ts`
 - 同步: `app/modules/sync/routes.ts`, `app/modules/sync/slidingRoutes.ts`
 - E2EE: `app/modules/e2ee/index.ts`

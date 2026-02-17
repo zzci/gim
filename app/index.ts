@@ -8,7 +8,7 @@ import { accountDataRoute, accountTokensRoute, deactivateRoute, profileRoute, pu
 import { adminRoute } from '@/modules/admin'
 import { loadAppServiceRegistrations } from '@/modules/appservice/config'
 import { appServicePingRoute } from '@/modules/appservice'
-import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ssoCallbackRoute, ssoRedirectRoute } from '@/modules/auth/routes'
+import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ssoCallbackRoute, ssoRedirectRoute } from '@/modules/auth'
 
 import { deviceRoute } from '@/modules/device/routes'
 import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee'
