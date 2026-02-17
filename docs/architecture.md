@@ -36,7 +36,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 | account | `app/modules/account/index.ts` | whoami、profile、account_data、user filter、push rules、user tokens、deactivate |
 | room | `app/modules/room/index.ts` | create/join/invite/leave/kick/ban、alias、summary |
 | message | `app/modules/message/index.ts` | send、messages、event、state、redact、typing、receipt、context |
-| sync | `app/modules/sync/routes.ts` | `/sync` 长轮询 |
+| sync | `app/modules/sync/index.ts` | `/sync` 长轮询 |
 | sliding sync | `app/modules/sync/slidingRoutes.ts` | MSC3575 风格 `/sync` |
 | e2ee | `app/modules/e2ee/index.ts` | keys upload/query/claim/changes、cross-signing、signatures、to-device、dehydrated device |
 | device | `app/modules/device/index.ts` | 设备列表、详情、更新、删除 |
@@ -255,6 +255,6 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 - 协议发现: `app/modules/server/index.ts`
 - 认证: `app/modules/auth/index.ts`, `app/oauth/provider.ts`
 - 房间/消息: `app/modules/room/index.ts`, `app/modules/message/index.ts`
-- 同步: `app/modules/sync/routes.ts`, `app/modules/sync/slidingRoutes.ts`
+- 同步: `app/modules/sync/index.ts`, `app/modules/sync/slidingRoutes.ts`
 - E2EE: `app/modules/e2ee/index.ts`
 - 测试: `tests/*.test.ts`

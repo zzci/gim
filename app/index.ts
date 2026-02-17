@@ -20,7 +20,7 @@ import { presenceRoute } from '@/modules/presence'
 import { createRoomRoute, joinedRoomsRoute, joinRoute, roomAliasRoute, roomMembershipRouter, roomSummaryRoute } from '@/modules/room'
 // Module imports
 import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRoute } from '@/modules/server'
-import { syncRoute } from '@/modules/sync/routes'
+import { syncRoute } from '@/modules/sync'
 import { slidingSyncRoute } from '@/modules/sync/slidingRoutes'
 import { threadRoute } from '@/modules/thread/routes'
 import { rtcTransportsRoute, turnServerRoute } from '@/modules/voip/routes'
