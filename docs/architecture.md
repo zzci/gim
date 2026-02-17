@@ -33,7 +33,7 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 |---|---|---|
 | server | `app/modules/server/routes.ts` | `/.well-known`、`/versions`、`/capabilities` |
 | auth | `app/modules/auth/routes.ts` | 登录、登出、SSO、refresh |
-| account | `app/modules/account/routes.ts` | whoami、profile、account_data、user filter、push rules、user tokens、deactivate |
+| account | `app/modules/account/index.ts` | whoami、profile、account_data、user filter、push rules、user tokens、deactivate |
 | room | `app/modules/room/routes.ts` | create/join/invite/leave/kick/ban、alias、summary |
 | message | `app/modules/message/routes.ts` | send、messages、event、state、redact、typing、receipt、context |
 | sync | `app/modules/sync/routes.ts` | `/sync` 长轮询 |
