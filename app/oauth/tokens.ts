@@ -1,9 +1,10 @@
 import { Buffer } from 'node:buffer'
 import { createHash, createSign, generateKeyPairSync, randomBytes } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { oauthTokens } from '@/db/schema'
+import { devices, oauthTokens } from '@/db/schema'
+import { generateDeviceId } from '@/utils/tokens'
 
 // ECDSA P-256 key pair for id_token signing (regenerated on restart)
 const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
@@ -65,6 +66,14 @@ function createIdToken(sub: string, clientId: string, nonce?: string): string {
   return signJwt(claims)
 }
 
+// Validate device_id: 1-255 printable ASCII characters, no control chars
+function isValidDeviceId(id: string): boolean {
+  if (!id || id.length > 255)
+    return false
+  // eslint-disable-next-line no-control-regex
+  return !/[\x00-\x1F\x7F]/.test(id)
+}
+
 function createTokenPair(
   accountId: string,
   scope: string,
@@ -74,9 +83,37 @@ function createTokenPair(
 ): TokenResult {
   const nowMs = Date.now()
 
-  // Extract deviceId from scope
+  // Extract deviceId from scope, generate if missing or invalid
   const deviceMatch = scope.match(/urn:matrix:client:device:(\S+)/)
-  const deviceId = deviceMatch?.[1] || null
+  let deviceId = deviceMatch?.[1] || null
+
+  if (!deviceId || !isValidDeviceId(deviceId)) {
+    const userId = `@${accountId}:${serverName}`
+    // Generate unique device ID with collision retry
+    for (let attempt = 0; attempt < 5; attempt++) {
+      deviceId = generateDeviceId()
+      const existing = db.select({ id: devices.id })
+        .from(devices)
+        .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
+        .get()
+      if (!existing)
+        break
+    }
+
+    // Inject device scope: replace invalid one or append
+    if (deviceMatch) {
+      scope = scope.replace(/urn:matrix:client:device:\S+/, `urn:matrix:client:device:${deviceId}`)
+    }
+    else {
+      scope = `${scope} urn:matrix:client:device:${deviceId}`
+    }
+
+    // Create device record
+    db.insert(devices).values({
+      userId,
+      id: deviceId,
+    }).onConflictDoNothing().run()
+  }
 
   // Create grant if not provided
   if (!grantId) {

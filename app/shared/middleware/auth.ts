@@ -95,7 +95,11 @@ export async function authMiddleware(c: Context, next: Next) {
       return matrixError(c, 'M_UNKNOWN_TOKEN', 'Invalid token: missing accountId', { soft_logout: false })
     }
     userId = accountId.startsWith('@') ? accountId : `@${accountId}:${serverName}`
-    deviceId = row.deviceId || 'OIDC_DEVICE'
+    if (!row.deviceId) {
+      // This should not happen after the token fix — log for debugging
+      logger.warn('oauth_token_missing_device_id', { tokenId: row.id, accountId })
+    }
+    deviceId = row.deviceId || `OIDC_${accountId}`
   }
   else {
     // Fall back to user tokens (long-lived bot tokens)

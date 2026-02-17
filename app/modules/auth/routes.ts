@@ -79,7 +79,11 @@ loginRoute.post('/', async (c) => {
     return matrixError(c, 'M_USER_DEACTIVATED', 'This account has been deactivated')
   }
 
-  let deviceId = device_id
+  // Validate client-provided device_id: non-empty, max 255 chars, no control chars
+  // eslint-disable-next-line no-control-regex
+  const isValidDeviceId = (id: string) => id && id.length <= 255 && !/[\x00-\x1F\x7F]/.test(id)
+
+  let deviceId = device_id && isValidDeviceId(device_id) ? device_id : null
   if (!deviceId) {
     // Generate a unique device ID for this user with collision retry
     for (let attempt = 0; attempt < 5; attempt++) {
