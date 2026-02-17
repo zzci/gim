@@ -16,7 +16,7 @@ import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRou
 import { messageRouter } from '@/modules/message'
 import { pusherRoute } from '@/modules/notification/pusherRoutes'
 import { notificationsRoute } from '@/modules/notification'
-import { presenceRoute } from '@/modules/presence/routes'
+import { presenceRoute } from '@/modules/presence'
 import { createRoomRoute, joinedRoomsRoute, joinRoute, roomAliasRoute, roomMembershipRouter, roomSummaryRoute } from '@/modules/room/routes'
 // Module imports
 import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRoute } from '@/modules/server/routes'
