@@ -13,7 +13,7 @@ import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ss
 import { deviceRoute } from '@/modules/device'
 import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee'
 import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRoute, mediaThumbnailRoute, mediaUploadRoute } from '@/modules/media'
-import { messageRouter } from '@/modules/message/routes'
+import { messageRouter } from '@/modules/message'
 import { pusherRoute } from '@/modules/notification/pusherRoutes'
 import { notificationsRoute } from '@/modules/notification/routes'
 import { presenceRoute } from '@/modules/presence/routes'
