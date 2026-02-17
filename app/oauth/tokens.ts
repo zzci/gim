@@ -67,12 +67,12 @@ function createIdToken(sub: string, clientId: string, nonce?: string): string {
   return signJwt(claims)
 }
 
-// Validate device_id: 1-255 printable ASCII characters, no control chars
+// Validate Matrix device_id for MSC2965 flows.
+// Keep it strict/alnum-only to avoid client incompatibilities with symbols.
 function isValidDeviceId(id: string): boolean {
   if (!id || id.length > 255)
     return false
-  // eslint-disable-next-line no-control-regex
-  return !/[\x00-\x1F\x7F]/.test(id)
+  return /^[a-z0-9]+$/i.test(id)
 }
 
 function createTokenPair(

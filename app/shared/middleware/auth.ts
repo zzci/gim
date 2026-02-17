@@ -4,6 +4,7 @@ import { serverName } from '@/config'
 import { db } from '@/db'
 import { accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
 import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
+import { generateDeviceId } from '@/utils/tokens'
 import { matrixError } from './errors'
 
 const deviceLastUpdated = new Map<string, number>()
@@ -96,10 +97,18 @@ export async function authMiddleware(c: Context, next: Next) {
     }
     userId = accountId.startsWith('@') ? accountId : `@${accountId}:${serverName}`
     if (!row.deviceId) {
-      // This should not happen after the token fix — log for debugging
+      // Backfill legacy OAuth tokens that were issued without device_id.
       logger.warn('oauth_token_missing_device_id', { tokenId: row.id, accountId })
+      const generated = generateDeviceId()
+      db.update(oauthTokens)
+        .set({ deviceId: generated })
+        .where(eq(oauthTokens.id, row.id))
+        .run()
+      deviceId = generated
     }
-    deviceId = row.deviceId || `OIDC_${accountId}`
+    else {
+      deviceId = row.deviceId
+    }
   }
   else {
     // Fall back to user tokens (long-lived bot tokens)
