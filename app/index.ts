@@ -7,7 +7,7 @@ import { sqlite } from '@/db'
 import { accountDataRoute, accountTokensRoute, deactivateRoute, profileRoute, pushRulesRoute, userFilterRoute, whoamiRoute } from '@/modules/account'
 import { adminRoute } from '@/modules/admin'
 import { loadAppServiceRegistrations } from '@/modules/appservice/config'
-import { appServicePingRoute } from '@/modules/appservice/routes'
+import { appServicePingRoute } from '@/modules/appservice'
 import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ssoCallbackRoute, ssoRedirectRoute } from '@/modules/auth/routes'
 
 import { deviceRoute } from '@/modules/device/routes'
