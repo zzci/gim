@@ -22,7 +22,7 @@ import { createRoomRoute, joinedRoomsRoute, joinRoute, roomAliasRoute, roomMembe
 import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRoute } from '@/modules/server'
 import { syncRoute } from '@/modules/sync'
 import { slidingSyncRoute } from '@/modules/sync/slidingRoutes'
-import { threadRoute } from '@/modules/thread/routes'
+import { threadRoute } from '@/modules/thread'
 import { rtcTransportsRoute, turnServerRoute } from '@/modules/voip/routes'
 import { oauthApp } from '@/oauth/provider'
 import { formatPrometheusMetrics } from '@/shared/metrics'
