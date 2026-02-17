@@ -11,7 +11,7 @@ import { appServicePingRoute } from '@/modules/appservice/routes'
 import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ssoCallbackRoute, ssoRedirectRoute } from '@/modules/auth/routes'
 
 import { deviceRoute } from '@/modules/device/routes'
-import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee/routes'
+import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee'
 import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRoute, mediaThumbnailRoute, mediaUploadRoute } from '@/modules/media/routes'
 import { messageRouter } from '@/modules/message/routes'
 import { pusherRoute } from '@/modules/notification/pusherRoutes'
