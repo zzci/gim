@@ -3,6 +3,7 @@ CREATE TABLE `account_data` (
 	`type` text NOT NULL,
 	`room_id` text DEFAULT '',
 	`content` text NOT NULL,
+	`stream_id` text NOT NULL,
 	PRIMARY KEY(`user_id`, `type`, `room_id`),
 	FOREIGN KEY (`user_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
 );
@@ -82,6 +83,10 @@ CREATE TABLE `devices` (
 	`user_id` text NOT NULL,
 	`id` text NOT NULL,
 	`display_name` text,
+	`trust_state` text DEFAULT 'unverified' NOT NULL,
+	`trust_reason` text DEFAULT 'new_login_unverified' NOT NULL,
+	`verified_at` integer,
+	`verified_by_device_id` text,
 	`ip_address` text,
 	`user_agent` text,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
@@ -91,13 +96,6 @@ CREATE TABLE `devices` (
 	`pending_key_change` integer DEFAULT false NOT NULL,
 	PRIMARY KEY(`user_id`, `id`),
 	FOREIGN KEY (`user_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-CREATE TABLE `e2ee_cross_signing_keys` (
-	`user_id` text NOT NULL,
-	`key_type` text NOT NULL,
-	`key_data` text NOT NULL,
-	PRIMARY KEY(`user_id`, `key_type`)
 );
 --> statement-breakpoint
 CREATE TABLE `e2ee_dehydrated_devices` (
@@ -145,6 +143,18 @@ CREATE TABLE `e2ee_one_time_keys` (
 );
 --> statement-breakpoint
 CREATE INDEX `e2ee_otk_user_device_claimed_idx` ON `e2ee_one_time_keys` (`user_id`,`device_id`,`claimed`);--> statement-breakpoint
+CREATE TABLE `e2ee_room_key_backup_keys` (
+	`user_id` text NOT NULL,
+	`version` text NOT NULL,
+	`room_id` text NOT NULL,
+	`session_id` text NOT NULL,
+	`key_data` text NOT NULL,
+	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	PRIMARY KEY(`user_id`, `version`, `room_id`, `session_id`),
+	FOREIGN KEY (`user_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE INDEX `e2ee_room_key_backup_keys_user_ver_idx` ON `e2ee_room_key_backup_keys` (`user_id`,`version`);--> statement-breakpoint
 CREATE TABLE `e2ee_room_key_backups` (
 	`user_id` text NOT NULL,
 	`version` text NOT NULL,
@@ -158,18 +168,6 @@ CREATE TABLE `e2ee_room_key_backups` (
 );
 --> statement-breakpoint
 CREATE INDEX `e2ee_room_key_backups_user_idx` ON `e2ee_room_key_backups` (`user_id`);--> statement-breakpoint
-CREATE TABLE `e2ee_room_key_backup_keys` (
-	`user_id` text NOT NULL,
-	`version` text NOT NULL,
-	`room_id` text NOT NULL,
-	`session_id` text NOT NULL,
-	`key_data` text NOT NULL,
-	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
-	PRIMARY KEY(`user_id`, `version`, `room_id`, `session_id`),
-	FOREIGN KEY (`user_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
-);
---> statement-breakpoint
-CREATE INDEX `e2ee_room_key_backup_keys_user_ver_idx` ON `e2ee_room_key_backup_keys` (`user_id`,`version`);--> statement-breakpoint
 CREATE TABLE `e2ee_to_device_messages` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`user_id` text NOT NULL,

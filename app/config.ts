@@ -64,16 +64,19 @@ interface BuildInfo { commit: string, commitFull: string, branch: string, buildT
 const defaultBuildInfo: BuildInfo = { commit: 'dev', commitFull: 'dev', branch: 'dev', buildTime: new Date().toISOString() }
 
 function loadBuildInfo(): BuildInfo {
-  const file = Bun.file('./build.json')
-  if (!file.size)
-    return defaultBuildInfo
-  try {
-    // eslint-disable-next-line ts/no-require-imports
-    return require('../build.json')
+  if (typeof Bun !== 'undefined') {
+    const file = Bun.file('./build.json')
+    if (!file.size)
+      return defaultBuildInfo
+    try {
+      // eslint-disable-next-line ts/no-require-imports
+      return require('../build.json')
+    }
+    catch {
+      return defaultBuildInfo
+    }
   }
-  catch {
-    return defaultBuildInfo
-  }
+  return defaultBuildInfo
 }
 
 export const buildInfo = loadBuildInfo()

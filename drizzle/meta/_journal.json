@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1770763972597,
-      "tag": "0000_colorful_iron_lad",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1770765808841,
-      "tag": "0001_special_gunslinger",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1770852000000,
-      "tag": "0002_rename_cross_signing_keys",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1771333500000,
-      "tag": "0003_device_trust_state",
+      "when": 1771384628461,
+      "tag": "0000_rainy_epoch",
       "breakpoints": true
     }
   ]
