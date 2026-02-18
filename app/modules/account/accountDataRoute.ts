@@ -10,6 +10,7 @@ import { generateUlid } from '@/utils/tokens'
 
 export const accountDataRoute = new Hono<AuthEnv>()
 accountDataRoute.use('/*', authMiddleware)
+const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
 
 accountDataRoute.put('/:type', async (c) => {
   const auth = c.get('auth')
@@ -44,6 +45,10 @@ accountDataRoute.get('/:type', async (c) => {
   const auth = c.get('auth')
   const userId = auth.userId
   const type = c.req.param('type')
+
+  if (type === BACKUP_DISABLED_TYPE) {
+    return c.json({ disabled: true })
+  }
 
   const result = await db.select()
     .from(accountData)

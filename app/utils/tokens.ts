@@ -6,6 +6,7 @@ const ulid = monotonicFactory()
 
 // Readable alphabet: no 0/O, 1/l/I confusion
 const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz', 8)
+const deviceNanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz', 10)
 
 export function generateUlid(): string {
   return ulid()
@@ -16,7 +17,7 @@ export function generateShortId(): string {
 }
 
 export function generateDeviceId(): string {
-  return nanoid()
+  return deviceNanoid()
 }
 
 export function generateEventId(): string {

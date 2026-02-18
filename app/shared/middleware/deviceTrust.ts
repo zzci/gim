@@ -18,7 +18,7 @@ export function normalizeDeviceTrustState(value: string | null | undefined): Dev
   if (value === 'trusted' || value === 'unverified' || value === 'blocked') {
     return value
   }
-  return 'trusted'
+  return 'unverified'
 }
 
 export function isTrustedDevice(trustState: DeviceTrustState): boolean {

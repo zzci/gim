@@ -86,7 +86,7 @@ export async function authMiddleware(c: Context, next: Next) {
 
   let userId: string
   let deviceId: string
-  let trustState: DeviceTrustState = 'trusted'
+  let trustState: DeviceTrustState = 'unverified'
 
   if (row) {
     if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
@@ -149,7 +149,7 @@ export async function authMiddleware(c: Context, next: Next) {
       userId,
       id: deviceId,
       trustState,
-      trustReason: trustState === 'trusted' ? 'legacy_backfill' : 'unknown',
+      trustReason: trustState === 'trusted' ? 'legacy_backfill' : 'new_login_unverified',
       ipAddress: c.req.header('x-forwarded-for') || null,
       lastSeenAt: new Date(),
     }).onConflictDoUpdate({
