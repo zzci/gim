@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { accountDataCrossSigning, devices, e2eeDeviceKeys } from '@/db/schema'
+import { accountDataCrossSigning, devices, e2eeDeviceKeys, e2eeDeviceListChanges } from '@/db/schema'
+import { generateUlid } from '@/utils/tokens'
 import { getAlice, getBob, loadTokens, txnId } from './helpers'
 
 describe('Device Trust Isolation', () => {
@@ -103,5 +104,27 @@ describe('Device Trust Isolation', () => {
       .get()
 
     expect(device?.trustState).toBe('trusted')
+  })
+
+  test('unverified device sync only returns own device_lists.changed entries', async () => {
+    const tokens = await loadTokens()
+    const alice = await getAlice()
+    await getBob()
+
+    db.update(devices)
+      .set({ trustState: 'unverified' })
+      .where(and(eq(devices.userId, tokens.alice.userId), eq(devices.id, tokens.alice.deviceId)))
+      .run()
+
+    const initial = await alice.sync({ timeout: 0 })
+
+    db.insert(e2eeDeviceListChanges).values([
+      { userId: tokens.alice.userId, ulid: generateUlid() },
+      { userId: tokens.bob.userId, ulid: generateUlid() },
+    ]).run()
+
+    const incremental = await alice.sync({ since: initial.next_batch, timeout: 0 })
+    expect(incremental.device_lists.changed).toContain(tokens.alice.userId)
+    expect(incremental.device_lists.changed).not.toContain(tokens.bob.userId)
   })
 })

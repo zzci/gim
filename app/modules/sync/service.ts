@@ -433,13 +433,18 @@ export function buildSyncResponse(opts: SyncOptions) {
   // Device list changes (users whose keys changed since last sync)
   let changedUsers: string[] = []
   let maxDeviceListUlid = ''
-  if (opts.isTrustedDevice && sinceId !== null) {
+  if (sinceId !== null) {
+    const changeConditions = [gt(e2eeDeviceListChanges.ulid, sinceId)]
+    if (!opts.isTrustedDevice) {
+      changeConditions.push(eq(e2eeDeviceListChanges.userId, opts.userId))
+    }
+
     const changes = db.select({
       userId: e2eeDeviceListChanges.userId,
       ulid: e2eeDeviceListChanges.ulid,
     })
       .from(e2eeDeviceListChanges)
-      .where(gt(e2eeDeviceListChanges.ulid, sinceId))
+      .where(and(...changeConditions))
       .all()
     changedUsers = [...new Set(changes.map(c => c.userId))]
     if (changes.length > 0) {

@@ -76,15 +76,18 @@ keysUploadRoute.post('/', async (c) => {
         eq(devices.trustState, 'trusted'),
       ))
       .get()
-    const hasCrossSigning = db.select({ keyType: accountDataCrossSigning.keyType })
+    const hasMasterCrossSigning = db.select({ keyType: accountDataCrossSigning.keyType })
       .from(accountDataCrossSigning)
-      .where(eq(accountDataCrossSigning.userId, auth.userId))
+      .where(and(
+        eq(accountDataCrossSigning.userId, auth.userId),
+        eq(accountDataCrossSigning.keyType, 'master'),
+      ))
       .get()
     const hasAnyDeviceKeys = db.select({ deviceId: e2eeDeviceKeys.deviceId })
       .from(e2eeDeviceKeys)
       .where(eq(e2eeDeviceKeys.userId, auth.userId))
       .get()
-    const canBootstrapTrust = !trustedDevice && !hasCrossSigning && !hasAnyDeviceKeys
+    const canBootstrapTrust = !trustedDevice && !hasMasterCrossSigning && !hasAnyDeviceKeys
 
     const sigResult = verifyDeviceKeySignature(dk, auth.userId, auth.deviceId)
     if (!sigResult.valid) {
