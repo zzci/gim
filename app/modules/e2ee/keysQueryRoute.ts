@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { db } from '@/db'
 import { accountCrossSigningKeys, devices, e2eeDeviceKeys } from '@/db/schema'
 import { authMiddleware } from '@/shared/middleware/auth'
+import { matrixError } from '@/shared/middleware/errors'
 
 export const keysQueryRoute = new Hono<AuthEnv>()
 keysQueryRoute.use('/*', authMiddleware)
@@ -12,6 +13,14 @@ keysQueryRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const body = await c.req.json()
   const requestedDevices = body.device_keys || {}
+
+  if (auth.trustState !== 'trusted') {
+    const requestedUsers = Object.keys(requestedDevices)
+    const containsForeignUsers = requestedUsers.some(userId => userId !== auth.userId)
+    if (containsForeignUsers) {
+      return matrixError(c, 'M_FORBIDDEN', 'Device is not verified', { errcode_detail: 'M_DEVICE_UNVERIFIED' })
+    }
+  }
 
   const e2eeDeviceKeysResult: Record<string, Record<string, any>> = {}
   const masterKeys: Record<string, any> = {}

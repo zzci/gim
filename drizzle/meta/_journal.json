@@ -22,6 +22,13 @@
       "when": 1770852000000,
       "tag": "0002_rename_cross_signing_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1771333500000,
+      "tag": "0003_device_trust_state",
+      "breakpoints": true
     }
   ]
 }

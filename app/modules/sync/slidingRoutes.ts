@@ -65,6 +65,7 @@ slidingSyncRoute.post('/sync', async (c) => {
     let response = buildSlidingSyncResponse(
       auth.userId,
       auth.deviceId,
+      auth.trustState === 'trusted',
       requestBody,
       pos,
     )
@@ -78,6 +79,7 @@ slidingSyncRoute.post('/sync', async (c) => {
           response = buildSlidingSyncResponse(
             auth.userId,
             auth.deviceId,
+            auth.trustState === 'trusted',
             requestBody,
             pos,
           )

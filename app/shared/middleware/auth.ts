@@ -1,9 +1,11 @@
 import type { Context, Next } from 'hono'
+import type { DeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { and, eq } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
 import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
+import { normalizeDeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { generateDeviceId } from '@/utils/tokens'
 import { matrixError } from './errors'
 
@@ -22,6 +24,7 @@ export interface AuthContext {
   userId: string
   deviceId: string
   isGuest: boolean
+  trustState: DeviceTrustState
 }
 
 export interface AuthEnv {
@@ -68,7 +71,7 @@ export async function authMiddleware(c: Context, next: Next) {
     ensureAppServiceUser(userId)
 
     // AS requests skip device tracking
-    c.set('auth', { userId, deviceId: 'APPSERVICE', isGuest: false } as AuthContext)
+    c.set('auth', { userId, deviceId: 'APPSERVICE', isGuest: false, trustState: 'trusted' } as AuthContext)
     await next()
     return
   }
@@ -83,6 +86,7 @@ export async function authMiddleware(c: Context, next: Next) {
 
   let userId: string
   let deviceId: string
+  let trustState: DeviceTrustState = 'trusted'
 
   if (row) {
     if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
@@ -123,6 +127,12 @@ export async function authMiddleware(c: Context, next: Next) {
     db.update(accountTokens).set({ lastUsedAt: new Date() }).where(eq(accountTokens.token, token)).run()
   }
 
+  const existingDevice = db.select({ trustState: devices.trustState })
+    .from(devices)
+    .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
+    .get()
+  trustState = normalizeDeviceTrustState(existingDevice?.trustState)
+
   // Check account exists and is active
   const account = db.select().from(accounts).where(eq(accounts.id, userId)).get()
   if (account?.isDeactivated) {
@@ -138,6 +148,7 @@ export async function authMiddleware(c: Context, next: Next) {
     db.insert(devices).values({
       userId,
       id: deviceId,
+      trustState,
       ipAddress: c.req.header('x-forwarded-for') || null,
       lastSeenAt: new Date(),
     }).onConflictDoUpdate({
@@ -150,6 +161,6 @@ export async function authMiddleware(c: Context, next: Next) {
     deviceLastUpdated.set(deviceKey, now)
   }
 
-  c.set('auth', { userId, deviceId, isGuest: false } as AuthContext)
+  c.set('auth', { userId, deviceId, isGuest: false, trustState } as AuthContext)
   await next()
 }

@@ -16,12 +16,14 @@ import { getMaxEventId } from '@/modules/message/service'
 import { getPresenceForRoommates } from '@/modules/presence/service'
 import { queryEventById, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
+import { isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
 
 const DEFAULT_TIMELINE_LIMIT = 10
 
 interface SyncOptions {
   userId: string
   deviceId: string
+  isTrustedDevice: boolean
   since?: string
   timeout?: number
   fullState?: boolean
@@ -285,15 +287,16 @@ function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: strin
 export function buildSyncResponse(opts: SyncOptions) {
   const sinceId = opts.since || null
 
-  // Get all rooms the user is a member of
-  const memberRooms = db.select({
-    roomId: roomMembers.roomId,
-    membership: roomMembers.membership,
-    eventId: roomMembers.eventId,
-  })
-    .from(roomMembers)
-    .where(eq(roomMembers.userId, opts.userId))
-    .all()
+  const memberRooms = opts.isTrustedDevice
+    ? db.select({
+        roomId: roomMembers.roomId,
+        membership: roomMembers.membership,
+        eventId: roomMembers.eventId,
+      })
+        .from(roomMembers)
+        .where(eq(roomMembers.userId, opts.userId))
+        .all()
+    : []
 
   const joinRooms: Record<string, JoinedRoomData> = {}
   const inviteRooms: Record<string, any> = {}
@@ -349,21 +352,23 @@ export function buildSyncResponse(opts: SyncOptions) {
   // Global account data
   let globalAccountData: any[] = []
   let maxAccountDataStreamId = ''
-  if (sinceId === null) {
-    globalAccountData = db.select().from(accountData).where(and(
-      eq(accountData.userId, opts.userId),
-      eq(accountData.roomId, ''),
-    )).all().map(d => ({ type: d.type, content: d.content }))
-  }
-  else {
-    const rows = db.select().from(accountData).where(and(
-      eq(accountData.userId, opts.userId),
-      eq(accountData.roomId, ''),
-      gt(accountData.streamId, sinceId),
-    )).all()
-    globalAccountData = rows.map(d => ({ type: d.type, content: d.content }))
-    if (rows.length > 0) {
-      maxAccountDataStreamId = rows.reduce((max, d) => d.streamId > max ? d.streamId : max, '')
+  if (opts.isTrustedDevice) {
+    if (sinceId === null) {
+      globalAccountData = db.select().from(accountData).where(and(
+        eq(accountData.userId, opts.userId),
+        eq(accountData.roomId, ''),
+      )).all().map(d => ({ type: d.type, content: d.content }))
+    }
+    else {
+      const rows = db.select().from(accountData).where(and(
+        eq(accountData.userId, opts.userId),
+        eq(accountData.roomId, ''),
+        gt(accountData.streamId, sinceId),
+      )).all()
+      globalAccountData = rows.map(d => ({ type: d.type, content: d.content }))
+      if (rows.length > 0) {
+        maxAccountDataStreamId = rows.reduce((max, d) => d.streamId > max ? d.streamId : max, '')
+      }
     }
   }
 
@@ -403,7 +408,11 @@ export function buildSyncResponse(opts: SyncOptions) {
       gt(e2eeToDeviceMessages.id, lastDeliveredId),
     )).orderBy(asc(e2eeToDeviceMessages.id)).all()
 
-    const tdEvents = toDeviceMsgs.map(m => ({
+    const visibleToDeviceMsgs = opts.isTrustedDevice
+      ? toDeviceMsgs
+      : toDeviceMsgs.filter(m => isVerificationToDeviceType(m.type))
+
+    const tdEvents = visibleToDeviceMsgs.map(m => ({
       type: m.type,
       sender: m.sender,
       content: m.content,
@@ -424,7 +433,7 @@ export function buildSyncResponse(opts: SyncOptions) {
   // Device list changes (users whose keys changed since last sync)
   let changedUsers: string[] = []
   let maxDeviceListUlid = ''
-  if (sinceId !== null) {
+  if (opts.isTrustedDevice && sinceId !== null) {
     const changes = db.select({
       userId: e2eeDeviceListChanges.userId,
       ulid: e2eeDeviceListChanges.ulid,
@@ -462,16 +471,18 @@ export function buildSyncResponse(opts: SyncOptions) {
     },
     account_data: { events: globalAccountData },
     presence: {
-      events: getPresenceForRoommates(opts.userId).map(p => ({
-        type: 'm.presence',
-        sender: p.userId,
-        content: {
-          presence: p.state,
-          last_active_ago: p.lastActiveAt ? Date.now() - p.lastActiveAt.getTime() : undefined,
-          status_msg: p.statusMsg || undefined,
-          currently_active: p.state === 'online',
-        },
-      })),
+      events: opts.isTrustedDevice
+        ? getPresenceForRoommates(opts.userId).map(p => ({
+            type: 'm.presence',
+            sender: p.userId,
+            content: {
+              presence: p.state,
+              last_active_ago: p.lastActiveAt ? Date.now() - p.lastActiveAt.getTime() : undefined,
+              status_msg: p.statusMsg || undefined,
+              currently_active: p.state === 'online',
+            },
+          }))
+        : [],
     },
     to_device: { events: toDeviceEvents },
     device_lists: {

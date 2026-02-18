@@ -33,6 +33,7 @@ syncRoute.get('/', async (c) => {
     const syncOpts = {
       userId: auth.userId,
       deviceId: auth.deviceId,
+      isTrustedDevice: auth.trustState === 'trusted',
       since,
       fullState,
       setPresence: setPresence || undefined,

@@ -67,6 +67,7 @@ export const devices = sqliteTable('devices', {
   userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
   id: text('id').notNull(), // device_id
   displayName: text('display_name'),
+  trustState: text('trust_state').notNull().default('trusted'), // trusted | unverified | blocked
   ipAddress: text('ip_address'),
   userAgent: text('user_agent'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),

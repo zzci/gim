@@ -9,6 +9,7 @@ import {
 } from '@/db/schema'
 import { getMaxEventId, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
+import { isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
 
 interface SlidingSyncList {
   ranges: [number, number][]
@@ -304,7 +305,7 @@ function buildRoomResponse(
   }
 }
 
-function processToDevice(userId: string, deviceId: string, since?: string): { events: any[], next_batch: string } {
+function processToDevice(userId: string, deviceId: string, isTrustedDevice: boolean, since?: string): { events: any[], next_batch: string } {
   return db.transaction((tx) => {
     const device = tx.select({ lastToDeviceStreamId: devices.lastToDeviceStreamId })
       .from(devices)
@@ -331,7 +332,9 @@ function processToDevice(userId: string, deviceId: string, since?: string): { ev
       gt(e2eeToDeviceMessages.id, lastDeliveredId),
     )).orderBy(asc(e2eeToDeviceMessages.id)).all()
 
-    const events = msgs.map(m => ({
+    const visibleMsgs = isTrustedDevice ? msgs : msgs.filter(m => isVerificationToDeviceType(m.type))
+
+    const events = visibleMsgs.map(m => ({
       type: m.type,
       sender: m.sender,
       content: m.content,
@@ -410,10 +413,11 @@ function hasRoomChanges(roomId: string, since: string): boolean {
 export function buildSlidingSyncResponse(
   userId: string,
   deviceId: string,
+  isTrustedDevice: boolean,
   body: SlidingSyncRequest,
   since?: string,
 ): SlidingSyncResponse {
-  const allRooms = getUserJoinedRoomsSorted(userId)
+  const allRooms = isTrustedDevice ? getUserJoinedRoomsSorted(userId) : []
 
   const listsResponse: Record<string, SlidingSyncListResponse> = {}
   const roomsResponse: Record<string, SlidingSyncRoomResponse> = {}
@@ -443,15 +447,14 @@ export function buildSlidingSyncResponse(
         }
       }
 
-      listsResponse[listName] = {
-        count: totalCount,
-        ops,
-      }
+      listsResponse[listName] = isTrustedDevice
+        ? { count: totalCount, ops }
+        : { count: 0, ops: [] }
     }
   }
 
   // Add room subscriptions
-  if (body.room_subscriptions) {
+  if (isTrustedDevice && body.room_subscriptions) {
     for (const roomId of Object.keys(body.room_subscriptions)) {
       roomsToInclude.add(roomId)
     }
@@ -498,7 +501,7 @@ export function buildSlidingSyncResponse(
   const extensions: Record<string, any> = {}
 
   if (body.extensions?.to_device?.enabled) {
-    extensions.to_device = processToDevice(userId, deviceId, body.extensions.to_device.since)
+    extensions.to_device = processToDevice(userId, deviceId, isTrustedDevice, body.extensions.to_device.since)
   }
 
   if (body.extensions?.e2ee?.enabled) {
@@ -506,7 +509,7 @@ export function buildSlidingSyncResponse(
   }
 
   if (body.extensions?.account_data?.enabled) {
-    extensions.account_data = processAccountData(userId, since)
+    extensions.account_data = isTrustedDevice ? processAccountData(userId, since) : { global: [] }
   }
 
   // Position token

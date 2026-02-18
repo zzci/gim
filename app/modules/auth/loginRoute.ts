@@ -81,11 +81,17 @@ loginRoute.post('/', async (c) => {
     }
   }
   const localpart = userId.split(':')[0]!.slice(1)
+  const existingTrustedDevices = db.select({ id: devices.id })
+    .from(devices)
+    .where(and(eq(devices.userId, userId), eq(devices.trustState, 'trusted')))
+    .all()
+  const defaultTrustState = existingTrustedDevices.length === 0 ? 'trusted' : 'unverified'
 
   await db.insert(devices).values({
     userId,
     id: deviceId,
     displayName: initial_device_display_name || null,
+    trustState: defaultTrustState,
     ipAddress: c.req.header('x-forwarded-for') || null,
   }).onConflictDoUpdate({
     target: [devices.userId, devices.id],
