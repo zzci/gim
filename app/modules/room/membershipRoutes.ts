@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { maxRoomMembers, maxRoomsPerUser } from '@/config'
 import { db } from '@/db'
-import { eventsState, roomMembers, rooms } from '@/db/schema'
+import { eventsState, roomAliases, roomMembers, rooms } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { checkRoomMemberLimit, checkUserRoomLimit } from '@/modules/room/limits'
 import { getActionPowerLevel, getRoomJoinRule, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
@@ -243,4 +243,21 @@ roomMembershipRouter.get('/:roomId/members', async (c) => {
   }
 
   return c.json({ chunk: memberEvents })
+})
+
+// GET /:roomId/aliases — List room aliases
+roomMembershipRouter.get('/:roomId/aliases', (c) => {
+  const auth = c.get('auth')
+  const roomId = getRoomId(c)
+
+  const membership = getRoomMembership(roomId, auth.userId)
+  if (membership !== 'join')
+    return matrixForbidden(c, 'Not a member of this room')
+
+  const aliases = db.select({ alias: roomAliases.alias })
+    .from(roomAliases)
+    .where(eq(roomAliases.roomId, roomId))
+    .all()
+
+  return c.json({ aliases: aliases.map(a => a.alias) })
 })
