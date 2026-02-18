@@ -98,6 +98,7 @@ export const rooms = sqliteTable('rooms', {
   version: text('version').notNull().default('12'),
   creatorId: text('creator_id').notNull(),
   isDirect: integer('is_direct', { mode: 'boolean' }).notNull().default(false),
+  visibility: text('visibility').notNull().default('private'), // public | private
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })
 

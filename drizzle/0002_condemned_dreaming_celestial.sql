@@ -1,0 +1,1 @@
+ALTER TABLE `rooms` ADD `visibility` text DEFAULT 'private' NOT NULL;

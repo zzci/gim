@@ -17,7 +17,7 @@ import { messageRouter } from '@/modules/message'
 import { notificationsRoute } from '@/modules/notification'
 import { pusherRoute } from '@/modules/notification/pusherRoutes'
 import { presenceRoute } from '@/modules/presence'
-import { createRoomRoute, joinedRoomsRoute, joinRoute, roomAliasRoute, roomMembershipRouter, roomSummaryRoute } from '@/modules/room'
+import { createRoomRoute, directoryListRoute, joinedRoomsRoute, joinRoute, publicRoomsRoute, roomAliasRoute, roomMembershipRouter, roomSummaryRoute } from '@/modules/room'
 // Module imports
 import { capabilitiesRoute, versionsRoute, wellKnowClientRoute, wellKnowServerRoute } from '@/modules/server'
 import { syncRoute } from '@/modules/sync'
@@ -128,6 +128,8 @@ async function run() {
   app.route('/_matrix/client/v3/join', joinRoute)
   app.route('/_matrix/client/v3/joined_rooms', joinedRoomsRoute)
   app.route('/_matrix/client/v3/directory/room', roomAliasRoute)
+  app.route('/_matrix/client/v3/directory/list/room', directoryListRoute)
+  app.route('/_matrix/client/v3/publicRooms', publicRoomsRoute)
   app.route('/_matrix/client/unstable/im.nheko.summary/rooms', roomSummaryRoute)
   app.route('/_matrix/client/v1/summary/rooms', roomSummaryRoute)
   app.route('/_matrix/client/v3/rooms', roomMembershipRouter)

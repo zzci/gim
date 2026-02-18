@@ -15,6 +15,13 @@
       "when": 1771451616314,
       "tag": "0001_loving_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1771454665604,
+      "tag": "0002_condemned_dreaming_celestial",
+      "breakpoints": true
     }
   ]
 }

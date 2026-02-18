@@ -1,4 +1,5 @@
 export * from './createRoomRoute'
+export * from './directoryRoute'
 export * from './joinedRoomsRoute'
 export * from './joinRoute'
 export * from './membershipRoutes'
