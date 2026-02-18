@@ -36,6 +36,14 @@ export const accountData = sqliteTable('account_data', {
   primaryKey({ columns: [table.userId, table.type, table.roomId] }),
 ])
 
+export const accountDataCrossSigning = sqliteTable('account_data_cross_signing', {
+  userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
+  keyType: text('key_type').notNull(), // master | self_signing | user_signing
+  keyData: text('key_data', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+}, table => [
+  primaryKey({ columns: [table.userId, table.keyType] }),
+])
+
 export const accountFilters = sqliteTable('account_filters', {
   id: text('id').primaryKey().$defaultFn(generateUlid),
   userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),

@@ -1,9 +1,8 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountData, accounts, accountTokens, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, oauthTokens, roomMembers } from '@/db/schema'
-import { CROSS_SIGNING_ACCOUNT_DATA_TYPES } from '@/modules/e2ee/crossSigningHelpers'
+import { accountDataCrossSigning, accounts, accountTokens, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, oauthTokens, roomMembers } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { authMiddleware } from '@/shared/middleware/auth'
 
@@ -33,11 +32,7 @@ deactivateRoute.post('/', async (c) => {
     tx.delete(e2eeDeviceKeys).where(eq(e2eeDeviceKeys.userId, userId)).run()
     tx.delete(e2eeOneTimeKeys).where(eq(e2eeOneTimeKeys.userId, userId)).run()
     tx.delete(e2eeFallbackKeys).where(eq(e2eeFallbackKeys.userId, userId)).run()
-    tx.delete(accountData).where(and(
-      eq(accountData.userId, userId),
-      eq(accountData.roomId, ''),
-      inArray(accountData.type, CROSS_SIGNING_ACCOUNT_DATA_TYPES),
-    )).run()
+    tx.delete(accountDataCrossSigning).where(eq(accountDataCrossSigning.userId, userId)).run()
 
     tx.delete(devices).where(eq(devices.userId, userId)).run()
 

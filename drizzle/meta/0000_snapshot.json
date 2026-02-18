@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a927139e-6182-4f2e-b0c0-e4c8c269545d",
+  "id": "dbbfecbf-8519-43ee-a83e-b381dab42d8a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "account_data": {
@@ -68,6 +68,59 @@
             "room_id"
           ],
           "name": "account_data_user_id_type_room_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "account_data_cross_signing": {
+      "name": "account_data_cross_signing",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key_type": {
+          "name": "key_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key_data": {
+          "name": "key_data",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "account_data_cross_signing_user_id_accounts_id_fk": {
+          "name": "account_data_cross_signing_user_id_accounts_id_fk",
+          "tableFrom": "account_data_cross_signing",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "account_data_cross_signing_user_id_key_type_pk": {
+          "columns": [
+            "user_id",
+            "key_type"
+          ],
+          "name": "account_data_cross_signing_user_id_key_type_pk"
         }
       },
       "uniqueConstraints": {},

@@ -8,6 +8,14 @@ CREATE TABLE `account_data` (
 	FOREIGN KEY (`user_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
+CREATE TABLE `account_data_cross_signing` (
+	`user_id` text NOT NULL,
+	`key_type` text NOT NULL,
+	`key_data` text NOT NULL,
+	PRIMARY KEY(`user_id`, `key_type`),
+	FOREIGN KEY (`user_id`) REFERENCES `accounts`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
 CREATE TABLE `account_filters` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,

@@ -6,23 +6,7 @@ export function extractBearerToken(header: string | undefined): string | null {
 
 export type CrossSigningDbType = 'master' | 'self_signing' | 'user_signing'
 
-export const CROSS_SIGNING_ACCOUNT_DATA_TYPE: Record<CrossSigningDbType, string> = {
-  master: 'm.cross_signing.master',
-  self_signing: 'm.cross_signing.self_signing',
-  user_signing: 'm.cross_signing.user_signing',
-}
-
-export const CROSS_SIGNING_ACCOUNT_DATA_TYPES = Object.values(CROSS_SIGNING_ACCOUNT_DATA_TYPE)
-
-export function accountDataTypeToCrossSigningType(type: string): CrossSigningDbType | null {
-  if (type === CROSS_SIGNING_ACCOUNT_DATA_TYPE.master)
-    return 'master'
-  if (type === CROSS_SIGNING_ACCOUNT_DATA_TYPE.self_signing)
-    return 'self_signing'
-  if (type === CROSS_SIGNING_ACCOUNT_DATA_TYPE.user_signing)
-    return 'user_signing'
-  return null
-}
+export const CROSS_SIGNING_KEY_TYPES: CrossSigningDbType[] = ['master', 'self_signing', 'user_signing']
 
 export function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object')
