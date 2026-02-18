@@ -67,7 +67,10 @@ export const devices = sqliteTable('devices', {
   userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
   id: text('id').notNull(), // device_id
   displayName: text('display_name'),
-  trustState: text('trust_state').notNull().default('trusted'), // trusted | unverified | blocked
+  trustState: text('trust_state').notNull().default('unverified'), // trusted | unverified | blocked
+  trustReason: text('trust_reason').notNull().default('new_login_unverified'),
+  verifiedAt: integer('verified_at', { mode: 'timestamp_ms' }),
+  verifiedByDeviceId: text('verified_by_device_id'),
   ipAddress: text('ip_address'),
   userAgent: text('user_agent'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),

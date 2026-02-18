@@ -82,6 +82,9 @@ sendToDeviceRoute.put('/:eventType/:txnId', async (c) => {
         db.update(devices)
           .set({
             trustState: 'trusted',
+            trustReason: 'verification_done',
+            verifiedAt: new Date(),
+            verifiedByDeviceId: auth.deviceId,
           })
           .where(and(
             eq(devices.userId, auth.userId),

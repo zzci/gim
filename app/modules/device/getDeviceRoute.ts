@@ -24,6 +24,10 @@ deviceGetRoute.get('/:deviceId', async (c) => {
   return c.json({
     device_id: device.id,
     display_name: device.displayName,
+    trust_state: device.trustState,
+    trust_reason: device.trustReason,
+    verified_at: device.verifiedAt ? Number(device.verifiedAt) : undefined,
+    verified_by_device_id: device.verifiedByDeviceId || undefined,
     last_seen_ip: device.ipAddress,
     last_seen_ts: device.lastSeenAt ? Number(device.lastSeenAt) : undefined,
   })

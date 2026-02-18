@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { devices } from '@/db/schema'
+import { accountCrossSigningKeys, devices, e2eeDeviceKeys } from '@/db/schema'
 import { getAlice, getBob, loadTokens, txnId } from './helpers'
 
 describe('Device Trust Isolation', () => {
@@ -23,6 +23,10 @@ describe('Device Trust Isolation', () => {
     db.update(devices)
       .set({ trustState: 'unverified' })
       .where(and(eq(devices.userId, tokens.alice.userId), eq(devices.id, tokens.alice.deviceId)))
+      .run()
+    db.update(devices)
+      .set({ trustState: 'trusted' })
+      .where(and(eq(devices.userId, tokens.bob.userId), eq(devices.id, tokens.bob.deviceId)))
       .run()
 
     const syncWhileUnverified = await alice.sync({ timeout: 0 })
@@ -63,5 +67,41 @@ describe('Device Trust Isolation', () => {
       .run()
 
     await bob.leaveRoom(room.room_id)
+  })
+
+  test('first device bootstrap: unverified device becomes trusted after first key upload', async () => {
+    const tokens = await loadTokens()
+    const alice = await getAlice()
+
+    db.delete(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, tokens.alice.userId)).run()
+    db.delete(e2eeDeviceKeys).where(eq(e2eeDeviceKeys.userId, tokens.alice.userId)).run()
+    db.update(devices)
+      .set({ trustState: 'unverified' })
+      .where(and(eq(devices.userId, tokens.alice.userId), eq(devices.id, tokens.alice.deviceId)))
+      .run()
+
+    await alice.uploadKeys({
+      device_keys: {
+        user_id: tokens.alice.userId,
+        device_id: tokens.alice.deviceId,
+        algorithms: ['m.olm.v1.curve25519-aes-sha2'],
+        keys: {
+          [`curve25519:${tokens.alice.deviceId}`]: `bootstrap-curve-${Date.now()}`,
+          [`ed25519:${tokens.alice.deviceId}`]: `bootstrap-ed-${Date.now()}`,
+        },
+        signatures: {
+          [tokens.alice.userId]: {
+            [`ed25519:${tokens.alice.deviceId}`]: 'bootstrap-signature',
+          },
+        },
+      },
+    })
+
+    const device = db.select({ trustState: devices.trustState })
+      .from(devices)
+      .where(and(eq(devices.userId, tokens.alice.userId), eq(devices.id, tokens.alice.deviceId)))
+      .get()
+
+    expect(device?.trustState).toBe('trusted')
   })
 })

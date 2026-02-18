@@ -2,7 +2,7 @@ import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountTokens, devices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
+import { accountCrossSigningKeys, accountTokens, devices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { notifyUser } from '@/modules/sync/notifier'
 import { verifyDeviceKeySignature } from '@/shared/helpers/verifyKeys'
@@ -26,12 +26,33 @@ function shouldStrictlyRejectDeviceKeySignatureFailure(): boolean {
 export const keysUploadRoute = new Hono<AuthEnv>()
 keysUploadRoute.use('/*', authMiddleware)
 
+function hasOwnDeviceEd25519Key(deviceKeys: Record<string, unknown>, deviceId: string): boolean {
+  const keys = (deviceKeys.keys || {}) as Record<string, unknown>
+  return Object.prototype.hasOwnProperty.call(keys, `ed25519:${deviceId}`)
+}
+
 keysUploadRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const body = await c.req.json()
 
   if (body.device_keys) {
     const dk = body.device_keys
+    const trustedDevice = db.select({ id: devices.id })
+      .from(devices)
+      .where(and(
+        eq(devices.userId, auth.userId),
+        eq(devices.trustState, 'trusted'),
+      ))
+      .get()
+    const hasCrossSigning = db.select({ keyType: accountCrossSigningKeys.keyType })
+      .from(accountCrossSigningKeys)
+      .where(eq(accountCrossSigningKeys.userId, auth.userId))
+      .get()
+    const hasAnyDeviceKeys = db.select({ deviceId: e2eeDeviceKeys.deviceId })
+      .from(e2eeDeviceKeys)
+      .where(eq(e2eeDeviceKeys.userId, auth.userId))
+      .get()
+    const canBootstrapTrust = !trustedDevice && !hasCrossSigning && !hasAnyDeviceKeys
 
     const sigResult = verifyDeviceKeySignature(dk, auth.userId, auth.deviceId)
     if (!sigResult.valid) {
@@ -72,6 +93,22 @@ keysUploadRoute.post('/', async (c) => {
         displayName: dk.unsigned?.device_display_name || null,
       },
     })
+
+    if (canBootstrapTrust && hasOwnDeviceEd25519Key(dk as Record<string, unknown>, auth.deviceId)) {
+      db.update(devices)
+        .set({
+          trustState: 'trusted',
+          trustReason: 'bootstrap_first_device',
+          verifiedAt: new Date(),
+          verifiedByDeviceId: auth.deviceId,
+        })
+        .where(and(
+          eq(devices.userId, auth.userId),
+          eq(devices.id, auth.deviceId),
+          eq(devices.trustState, 'unverified'),
+        ))
+        .run()
+    }
 
     if (keysChanged) {
       db.transaction((tx) => {

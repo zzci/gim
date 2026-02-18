@@ -149,6 +149,7 @@ export async function authMiddleware(c: Context, next: Next) {
       userId,
       id: deviceId,
       trustState,
+      trustReason: trustState === 'trusted' ? 'legacy_backfill' : 'unknown',
       ipAddress: c.req.header('x-forwarded-for') || null,
       lastSeenAt: new Date(),
     }).onConflictDoUpdate({

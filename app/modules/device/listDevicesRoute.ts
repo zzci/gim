@@ -21,6 +21,10 @@ deviceListRoute.get('/', async (c) => {
     devices: rows.map(d => ({
       device_id: d.id,
       display_name: d.displayName,
+      trust_state: d.trustState,
+      trust_reason: d.trustReason,
+      verified_at: d.verifiedAt ? Number(d.verifiedAt) : undefined,
+      verified_by_device_id: d.verifiedByDeviceId || undefined,
       last_seen_ip: d.ipAddress,
       last_seen_ts: d.lastSeenAt ? Number(d.lastSeenAt) : undefined,
     })),
