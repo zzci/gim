@@ -90,7 +90,6 @@ slidingSyncRoute.post('/sync', async (c) => {
       }
     }
 
-    c.header('Connection', 'close')
     return c.json(response)
   }
   catch (err) {
