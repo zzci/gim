@@ -1,10 +1,11 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountCrossSigningKeys, devices, e2eeDeviceKeys } from '@/db/schema'
+import { accountData, devices, e2eeDeviceKeys } from '@/db/schema'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
+import { accountDataTypeToCrossSigningType, CROSS_SIGNING_ACCOUNT_DATA_TYPES } from './crossSigningHelpers'
 
 export const keysQueryRoute = new Hono<AuthEnv>()
 keysQueryRoute.use('/*', authMiddleware)
@@ -51,17 +52,22 @@ keysQueryRoute.post('/', async (c) => {
       }
     }
 
-    const csKeys = db.select().from(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, userId)).all()
+    const csKeys = db.select({ type: accountData.type, content: accountData.content }).from(accountData).where(and(
+      eq(accountData.userId, userId),
+      eq(accountData.roomId, ''),
+      inArray(accountData.type, CROSS_SIGNING_ACCOUNT_DATA_TYPES),
+    )).all()
 
     for (const csk of csKeys) {
-      const keyData = csk.keyData as any
-      if (csk.keyType === 'master') {
+      const keyData = csk.content as any
+      const keyType = accountDataTypeToCrossSigningType(csk.type)
+      if (keyType === 'master') {
         masterKeys[userId] = keyData
       }
-      else if (csk.keyType === 'self_signing') {
+      else if (keyType === 'self_signing') {
         selfSigningKeys[userId] = keyData
       }
-      else if (csk.keyType === 'user_signing' && userId === auth.userId) {
+      else if (keyType === 'user_signing' && userId === auth.userId) {
         userSigningKeys[userId] = keyData
       }
     }

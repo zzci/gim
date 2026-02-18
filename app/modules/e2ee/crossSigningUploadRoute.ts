@@ -1,15 +1,14 @@
+import type { CrossSigningDbType } from './crossSigningHelpers'
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountCrossSigningKeys, e2eeDeviceListChanges } from '@/db/schema'
+import { accountData, e2eeDeviceListChanges } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
 import { generateUlid } from '@/utils/tokens'
-import { isCrossSigningResetVerified, stableJson } from './crossSigningHelpers'
-
-type CrossSigningDbType = 'master' | 'self_signing' | 'user_signing'
+import { accountDataTypeToCrossSigningType, CROSS_SIGNING_ACCOUNT_DATA_TYPE, CROSS_SIGNING_ACCOUNT_DATA_TYPES, isCrossSigningResetVerified, stableJson } from './crossSigningHelpers'
 
 const requiredResetTypes: CrossSigningDbType[] = ['master', 'self_signing', 'user_signing']
 
@@ -65,11 +64,20 @@ crossSigningRoute.post('/', async (c) => {
   }
 
   const existingRows = db.select({
-    keyType: accountCrossSigningKeys.keyType,
-    keyData: accountCrossSigningKeys.keyData,
-  }).from(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, auth.userId)).all()
+    type: accountData.type,
+    content: accountData.content,
+  }).from(accountData).where(and(
+    eq(accountData.userId, auth.userId),
+    eq(accountData.roomId, ''),
+    inArray(accountData.type, CROSS_SIGNING_ACCOUNT_DATA_TYPES),
+  )).all()
 
-  const existingByType = new Map(existingRows.map(r => [r.keyType as CrossSigningDbType, r.keyData]))
+  const existingByType = new Map<CrossSigningDbType, Record<string, unknown>>()
+  for (const row of existingRows) {
+    const keyType = accountDataTypeToCrossSigningType(row.type)
+    if (keyType)
+      existingByType.set(keyType, row.content as Record<string, unknown>)
+  }
   const incomingByType = new Map(incoming.map(r => [r.dbType, r.keyData]))
 
   const noDiff = requiredResetTypes.every((t) => {
@@ -101,25 +109,34 @@ crossSigningRoute.post('/', async (c) => {
     }
 
     db.transaction((tx) => {
-      tx.delete(accountCrossSigningKeys)
-        .where(eq(accountCrossSigningKeys.userId, auth.userId))
+      tx.delete(accountData)
+        .where(and(
+          eq(accountData.userId, auth.userId),
+          eq(accountData.roomId, ''),
+          inArray(accountData.type, CROSS_SIGNING_ACCOUNT_DATA_TYPES),
+        ))
         .run()
 
       for (const { dbType, keyData } of incoming) {
-        tx.insert(accountCrossSigningKeys).values({
+        tx.insert(accountData).values({
           userId: auth.userId,
-          keyType: dbType,
-          keyData,
+          type: CROSS_SIGNING_ACCOUNT_DATA_TYPE[dbType],
+          roomId: '',
+          content: keyData,
         }).run()
       }
     })
   }
   else {
     for (const { dbType, keyData } of incoming) {
-      await db.insert(accountCrossSigningKeys).values({
+      await db.insert(accountData).values({
         userId: auth.userId,
-        keyType: dbType,
-        keyData,
+        type: CROSS_SIGNING_ACCOUNT_DATA_TYPE[dbType],
+        roomId: '',
+        content: keyData,
+      }).onConflictDoUpdate({
+        target: [accountData.userId, accountData.type, accountData.roomId],
+        set: { content: keyData },
       })
     }
   }

@@ -11,7 +11,7 @@ import { loadAppServiceRegistrations } from '@/modules/appservice/config'
 import { loginRoute, logoutRoute, metadataRoute, refreshRoute, registerRoute, ssoCallbackRoute, ssoRedirectRoute } from '@/modules/auth'
 
 import { deviceRoute } from '@/modules/device'
-import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee'
+import { crossSigningRoute, dehydratedDeviceRoute, keysChangesRoute, keysClaimRoute, keysQueryRoute, keysUploadRoute, roomKeysRoute, sendToDeviceRoute, signaturesUploadRoute } from '@/modules/e2ee'
 import { mediaConfigRoute, mediaCreateRoute, mediaDownloadRoute, mediaPreviewRoute, mediaThumbnailRoute, mediaUploadRoute } from '@/modules/media'
 import { messageRouter } from '@/modules/message'
 import { notificationsRoute } from '@/modules/notification'
@@ -153,9 +153,7 @@ async function run() {
   app.route('/_matrix/client/v3/keys/device_signing/upload', crossSigningRoute)
   app.route('/_matrix/client/v3/keys/signatures/upload', signaturesUploadRoute)
   app.route('/_matrix/client/v3/sendToDevice', sendToDeviceRoute)
-  // Stub: room_keys not supported, return M_NOT_FOUND so SDK handles gracefully
-  app.get('/_matrix/client/v3/room_keys/version', c => c.json({ errcode: 'M_NOT_FOUND', error: 'No backup found' }, 404))
-  app.get('/_matrix/client/v3/room_keys/version/:version', c => c.json({ errcode: 'M_NOT_FOUND', error: 'No backup found' }, 404))
+  app.route('/_matrix/client/v3/room_keys', roomKeysRoute)
   app.route('/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device', dehydratedDeviceRoute)
 
   /* devices */

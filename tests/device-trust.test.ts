@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '@/db'
-import { accountCrossSigningKeys, devices, e2eeDeviceKeys } from '@/db/schema'
+import { accountData, devices, e2eeDeviceKeys } from '@/db/schema'
 import { getAlice, getBob, loadTokens, txnId } from './helpers'
 
 describe('Device Trust Isolation', () => {
@@ -73,7 +73,11 @@ describe('Device Trust Isolation', () => {
     const tokens = await loadTokens()
     const alice = await getAlice()
 
-    db.delete(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, tokens.alice.userId)).run()
+    db.delete(accountData).where(and(
+      eq(accountData.userId, tokens.alice.userId),
+      eq(accountData.roomId, ''),
+      inArray(accountData.type, ['m.cross_signing.master', 'm.cross_signing.self_signing', 'm.cross_signing.user_signing']),
+    )).run()
     db.delete(e2eeDeviceKeys).where(eq(e2eeDeviceKeys.userId, tokens.alice.userId)).run()
     db.update(devices)
       .set({ trustState: 'unverified' })

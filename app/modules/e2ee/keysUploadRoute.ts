@@ -1,14 +1,15 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountCrossSigningKeys, accountTokens, devices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
+import { accountData, accountTokens, devices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { notifyUser } from '@/modules/sync/notifier'
 import { verifyDeviceKeySignature } from '@/shared/helpers/verifyKeys'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
 import { generateUlid } from '@/utils/tokens'
+import { CROSS_SIGNING_ACCOUNT_DATA_TYPES } from './crossSigningHelpers'
 
 function envFlagEnabled(value?: string): boolean {
   if (!value)
@@ -76,9 +77,13 @@ keysUploadRoute.post('/', async (c) => {
         eq(devices.trustState, 'trusted'),
       ))
       .get()
-    const hasCrossSigning = db.select({ keyType: accountCrossSigningKeys.keyType })
-      .from(accountCrossSigningKeys)
-      .where(eq(accountCrossSigningKeys.userId, auth.userId))
+    const hasCrossSigning = db.select({ type: accountData.type })
+      .from(accountData)
+      .where(and(
+        eq(accountData.userId, auth.userId),
+        eq(accountData.roomId, ''),
+        inArray(accountData.type, CROSS_SIGNING_ACCOUNT_DATA_TYPES),
+      ))
       .get()
     const hasAnyDeviceKeys = db.select({ deviceId: e2eeDeviceKeys.deviceId })
       .from(e2eeDeviceKeys)

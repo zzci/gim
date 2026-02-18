@@ -1,11 +1,12 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountCrossSigningKeys, e2eeDeviceKeys, e2eeDeviceListChanges } from '@/db/schema'
+import { accountData, e2eeDeviceKeys, e2eeDeviceListChanges } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { generateUlid } from '@/utils/tokens'
+import { accountDataTypeToCrossSigningType, CROSS_SIGNING_ACCOUNT_DATA_TYPES } from './crossSigningHelpers'
 
 export const signaturesUploadRoute = new Hono<AuthEnv>()
 signaturesUploadRoute.use('/*', authMiddleware)
@@ -32,23 +33,34 @@ signaturesUploadRoute.post('/', async (c) => {
         continue
       }
 
-      const csKeys = db.select().from(accountCrossSigningKeys).where(eq(accountCrossSigningKeys.userId, userId)).all()
+      const csKeys = db.select({ type: accountData.type, content: accountData.content }).from(accountData).where(and(
+        eq(accountData.userId, userId),
+        eq(accountData.roomId, ''),
+        inArray(accountData.type, CROSS_SIGNING_ACCOUNT_DATA_TYPES),
+      )).all()
 
       let matched = false
       for (const csk of csKeys) {
-        const keyData = csk.keyData as any
+        const keyData = csk.content as any
         const keys = keyData.keys || {}
         if (Object.keys(keys).some((k: string) => k.includes(keyId) || keyId === k)) {
           const mergedSigs = { ...(keyData.signatures || {}) }
           for (const [sigUserId, sigs] of Object.entries(newSignatures) as [string, Record<string, string>][]) {
             mergedSigs[sigUserId] = { ...(mergedSigs[sigUserId] || {}), ...sigs }
           }
-          db.update(accountCrossSigningKeys)
-            .set({ keyData: { ...keyData, signatures: mergedSigs } })
-            .where(and(eq(accountCrossSigningKeys.userId, userId), eq(accountCrossSigningKeys.keyType, csk.keyType)))
-            .run()
-          matched = true
-          break
+          const keyType = accountDataTypeToCrossSigningType(csk.type)
+          if (keyType) {
+            db.update(accountData)
+              .set({ content: { ...keyData, signatures: mergedSigs } })
+              .where(and(
+                eq(accountData.userId, userId),
+                eq(accountData.roomId, ''),
+                eq(accountData.type, csk.type),
+              ))
+              .run()
+            matched = true
+            break
+          }
         }
       }
 

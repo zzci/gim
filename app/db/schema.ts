@@ -189,14 +189,6 @@ export const e2eeFallbackKeys = sqliteTable('e2ee_fallback_keys', {
   primaryKey({ columns: [table.userId, table.deviceId, table.algorithm] }),
 ])
 
-export const accountCrossSigningKeys = sqliteTable('account_cross_signing_keys', {
-  userId: text('user_id').notNull(),
-  keyType: text('key_type').notNull(), // master, self_signing, user_signing
-  keyData: text('key_data', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
-}, table => [
-  primaryKey({ columns: [table.userId, table.keyType] }),
-])
-
 export const e2eeToDeviceMessages = sqliteTable('e2ee_to_device_messages', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: text('user_id').notNull(),
@@ -222,6 +214,31 @@ export const e2eeDehydratedDevices = sqliteTable('e2ee_dehydrated_devices', {
   deviceData: text('device_data', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
 })
+
+export const e2eeRoomKeyBackups = sqliteTable('e2ee_room_key_backups', {
+  userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
+  version: text('version').notNull(),
+  algorithm: text('algorithm').notNull(),
+  authData: text('auth_data', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  etag: integer('etag').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, table => [
+  primaryKey({ columns: [table.userId, table.version] }),
+  index('e2ee_room_key_backups_user_idx').on(table.userId),
+])
+
+export const e2eeRoomKeyBackupKeys = sqliteTable('e2ee_room_key_backup_keys', {
+  userId: text('user_id').notNull().references((): AnySQLiteColumn => accounts.id),
+  version: text('version').notNull(),
+  roomId: text('room_id').notNull(),
+  sessionId: text('session_id').notNull(),
+  keyData: text('key_data', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+}, table => [
+  primaryKey({ columns: [table.userId, table.version, table.roomId, table.sessionId] }),
+  index('e2ee_room_key_backup_keys_user_ver_idx').on(table.userId, table.version),
+])
 
 // ======== Media ========
 
