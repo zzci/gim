@@ -36,7 +36,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   // Determine defaults based on preset
   const joinRule = preset === 'public_chat' ? 'public' : 'invite'
   const historyVisibility = preset === 'public_chat' ? 'shared' : 'shared'
-  const guestAccess = preset === 'public_chat' ? 'can_join' : 'can_join'
+  const guestAccess = preset === 'public_chat' ? 'can_join' : 'forbidden'
 
   // Insert room record
   db.insert(rooms).values({

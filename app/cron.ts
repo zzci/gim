@@ -115,7 +115,7 @@ export function startCron() {
         logger.error('Cron expirePresence failed', { error: String(err) })
       }
     }),
-    new Cron('*/5 * * * * *', async () => {
+    new Cron('*/5 * * * *', async () => {
       try {
         await processAppServiceTransactions()
       }

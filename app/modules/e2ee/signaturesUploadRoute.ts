@@ -11,10 +11,20 @@ export const signaturesUploadRoute = new Hono<AuthEnv>()
 signaturesUploadRoute.use('/*', authMiddleware)
 
 signaturesUploadRoute.post('/', async (c) => {
+  const auth = c.get('auth')
   const body = await c.req.json()
   const failures: Record<string, Record<string, any>> = {}
 
   for (const [userId, keyMap] of Object.entries(body) as [string, Record<string, any>][]) {
+    if (userId !== auth.userId) {
+      if (!failures[userId])
+        failures[userId] = {}
+      for (const keyId of Object.keys(keyMap)) {
+        failures[userId][keyId] = { errcode: 'M_FORBIDDEN', error: 'Cannot upload signatures for other users' }
+      }
+      continue
+    }
+
     for (const [keyId, signedObject] of Object.entries(keyMap)) {
       const newSignatures = signedObject.signatures || {}
       const deviceIdCandidates = [keyId]
@@ -40,7 +50,7 @@ signaturesUploadRoute.post('/', async (c) => {
         }
         db.update(e2eeDeviceKeys)
           .set({ signatures: merged })
-          .where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, keyId)))
+          .where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, dk.deviceId)))
           .run()
         logger.debug('signatures_upload_applied_device_key', { userId, keyId, matchedDeviceId: dk.deviceId })
         continue

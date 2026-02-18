@@ -5,7 +5,7 @@ import { db } from '@/db'
 import { accountData } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
-import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
+import { matrixNotFound } from '@/shared/middleware/errors'
 import { generateUlid } from '@/utils/tokens'
 
 export const accountDataRoute = new Hono<AuthEnv>()
@@ -14,19 +14,14 @@ const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
 
 accountDataRoute.put('/:type', async (c) => {
   const auth = c.get('auth')
-  const userId = c.req.url.includes('/user/') ? c.req.param('userId') || auth.userId : auth.userId
   const type = c.req.param('type')
-
-  if (auth.userId !== userId) {
-    return matrixForbidden(c, 'Cannot set account data for other users')
-  }
 
   const content = await c.req.json()
 
   const streamId = generateUlid()
 
   await db.insert(accountData).values({
-    userId,
+    userId: auth.userId,
     type,
     roomId: '',
     content,
@@ -36,7 +31,7 @@ accountDataRoute.put('/:type', async (c) => {
     set: { content, streamId },
   })
 
-  notifyUser(userId)
+  notifyUser(auth.userId)
 
   return c.json({})
 })

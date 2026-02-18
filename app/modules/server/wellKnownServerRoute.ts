@@ -1,20 +1,10 @@
 import { Hono } from 'hono'
+import { serverName } from '@/config'
 
 export const wellKnowServerRoute = new Hono()
 
 wellKnowServerRoute.get('/', async (c) => {
-  try {
-    return c.json({
-      ok: true,
-      req: c.req.header(),
-      env: process.env,
-    })
-  }
-  catch (error) {
-    logger.error(error)
-    c.json({
-      ok: false,
-      error,
-    })
-  }
+  return c.json({
+    'm.server': `${serverName}:443`,
+  })
 })

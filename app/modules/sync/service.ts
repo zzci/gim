@@ -350,6 +350,7 @@ export function buildSyncResponse(opts: SyncOptions) {
   }
 
   // Global account data
+  const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
   let globalAccountData: any[] = []
   let maxAccountDataStreamId = ''
   if (opts.isTrustedDevice) {
@@ -370,6 +371,10 @@ export function buildSyncResponse(opts: SyncOptions) {
         maxAccountDataStreamId = rows.reduce((max, d) => d.streamId > max ? d.streamId : max, '')
       }
     }
+  }
+  // Always include backup_disabled on initial sync so clients know recovery is not needed
+  if (sinceId === null && !globalAccountData.some((d: any) => d.type === BACKUP_DISABLED_TYPE)) {
+    globalAccountData.push({ type: BACKUP_DISABLED_TYPE, content: { disabled: true } })
   }
 
   // Device one-time key counts — use SQL COUNT instead of .all().length

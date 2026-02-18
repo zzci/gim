@@ -13,15 +13,15 @@ logoutRoute.post('/', async (c) => {
   const token = c.req.header('Authorization')?.slice(7)
 
   if (token) {
-    await db.delete(oauthTokens).where(eq(oauthTokens.id, `AccessToken:${token}`))
+    db.delete(oauthTokens).where(eq(oauthTokens.id, `AccessToken:${token}`)).run()
   }
 
   deleteDeviceKeys(auth.userId, auth.deviceId)
 
-  await db.delete(devices).where(and(
+  db.delete(devices).where(and(
     eq(devices.userId, auth.userId),
     eq(devices.id, auth.deviceId),
-  ))
+  )).run()
 
   logger.info('logout', { userId: auth.userId, deviceId: auth.deviceId })
 

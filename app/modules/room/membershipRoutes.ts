@@ -173,6 +173,11 @@ roomMembershipRouter.post('/:roomId/unban', async (c) => {
   if (!body.user_id)
     return matrixError(c, 'M_MISSING_PARAM', 'Missing user_id')
 
+  const senderPower = getUserPowerLevel(roomId, auth.userId)
+  const targetPower = getUserPowerLevel(roomId, body.user_id)
+  if (senderPower <= targetPower)
+    return matrixForbidden(c, 'Insufficient power level')
+
   const membership = getRoomMembership(roomId, body.user_id)
   if (membership !== 'ban')
     return matrixError(c, 'M_UNKNOWN', 'User is not banned')

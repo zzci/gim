@@ -2,7 +2,8 @@ import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq, gt } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { devices, e2eeDehydratedDevices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages } from '@/db/schema'
+import { devices, e2eeDehydratedDevices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, roomMembers } from '@/db/schema'
+import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { generateUlid } from '@/utils/tokens'
 
@@ -105,6 +106,31 @@ dehydratedDeviceRoute.put('/', async (c) => {
     ulid: generateUlid(),
   }).run()
 
+  // Notify room members about device list change
+  const sharedRooms = db.select({ roomId: roomMembers.roomId })
+    .from(roomMembers)
+    .where(and(
+      eq(roomMembers.userId, auth.userId),
+      eq(roomMembers.membership, 'join'),
+    ))
+    .all()
+  const notified = new Set<string>()
+  for (const room of sharedRooms) {
+    const members = db.select({ userId: roomMembers.userId })
+      .from(roomMembers)
+      .where(and(
+        eq(roomMembers.roomId, room.roomId),
+        eq(roomMembers.membership, 'join'),
+      ))
+      .all()
+    for (const m of members) {
+      if (m.userId !== auth.userId && !notified.has(m.userId)) {
+        notified.add(m.userId)
+        notifyUser(m.userId)
+      }
+    }
+  }
+
   return c.json({ device_id: deviceId })
 })
 
@@ -146,6 +172,12 @@ dehydratedDeviceRoute.delete('/', (c) => {
   db.delete(e2eeToDeviceMessages).where(and(eq(e2eeToDeviceMessages.userId, auth.userId), eq(e2eeToDeviceMessages.deviceId, devId))).run()
   db.delete(devices).where(and(eq(devices.userId, auth.userId), eq(devices.id, devId))).run()
   db.delete(e2eeDehydratedDevices).where(eq(e2eeDehydratedDevices.userId, auth.userId)).run()
+
+  db.insert(e2eeDeviceListChanges).values({
+    userId: auth.userId,
+    ulid: generateUlid(),
+  }).run()
+  notifyUser(auth.userId)
 
   return c.json({ device_id: devId })
 })
