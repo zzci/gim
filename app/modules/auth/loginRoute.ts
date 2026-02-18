@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { serverName } from '@/config'
 import { db } from '@/db'
@@ -35,20 +35,32 @@ loginRoute.post('/', async (c) => {
     return matrixError(c, 'M_BAD_JSON', 'Missing token')
   }
 
+  // Atomically consume the login token to prevent TOCTOU race conditions
+  const consumed = db.update(oauthTokens)
+    .set({ consumedAt: new Date() })
+    .where(and(
+      eq(oauthTokens.id, `LoginToken:${token}`),
+      isNull(oauthTokens.consumedAt),
+    ))
+    .run()
+
+  if (consumed.changes === 0) {
+    // Either token doesn't exist or was already consumed
+    const row = db.select({ id: oauthTokens.id }).from(oauthTokens).where(eq(oauthTokens.id, `LoginToken:${token}`)).get()
+    if (!row) {
+      return matrixError(c, 'M_FORBIDDEN', 'Invalid login token')
+    }
+    return matrixError(c, 'M_FORBIDDEN', 'Login token already used')
+  }
+
   const row = db.select().from(oauthTokens).where(eq(oauthTokens.id, `LoginToken:${token}`)).get()
   if (!row) {
     return matrixError(c, 'M_FORBIDDEN', 'Invalid login token')
   }
 
-  if (row.consumedAt) {
-    return matrixError(c, 'M_FORBIDDEN', 'Login token already used')
-  }
-
   if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
     return matrixError(c, 'M_FORBIDDEN', 'Login token expired')
   }
-
-  db.update(oauthTokens).set({ consumedAt: new Date() }).where(eq(oauthTokens.id, `LoginToken:${token}`)).run()
 
   const accountId = row.accountId
   if (!accountId) {

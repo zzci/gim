@@ -23,6 +23,10 @@ function maskValue(value: string): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`
 }
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 // ---- Upstream OIDC discovery (lazy-cached) ----
 
 interface UpstreamConfig {
@@ -126,16 +130,17 @@ function deleteDevice(deviceId: string) {
   if (!device)
     return
   const { userId } = device
+  const localpart = userId.split(':')[0]!.slice(1)
 
-  // Revoke OIDC tokens
+  // Revoke OIDC tokens scoped to this user's device
   const tokenRows = db.select({ grantId: oauthTokens.grantId })
     .from(oauthTokens)
-    .where(eq(oauthTokens.deviceId, deviceId))
+    .where(and(eq(oauthTokens.deviceId, deviceId), eq(oauthTokens.accountId, localpart)))
     .all()
   const grantIds = new Set(tokenRows.map(r => r.grantId).filter(Boolean) as string[])
   for (const grantId of grantIds)
     db.delete(oauthTokens).where(eq(oauthTokens.grantId, grantId)).run()
-  db.delete(oauthTokens).where(eq(oauthTokens.deviceId, deviceId)).run()
+  db.delete(oauthTokens).where(and(eq(oauthTokens.deviceId, deviceId), eq(oauthTokens.accountId, localpart))).run()
 
   // Clean up E2EE keys
   db.delete(e2eeDeviceKeys).where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, deviceId))).run()
@@ -161,7 +166,7 @@ button{padding:10px 24px;background:#0066cc;color:#fff;border:none;border-radius
 function renderSessionsPage(userDevices: { id: string, displayName: string | null, lastSeenAt: Date | null, ipAddress: string | null }[]) {
   const rows = userDevices.map((d) => {
     const lastSeen = d.lastSeenAt ? new Date(Number(d.lastSeenAt)).toLocaleString() : '—'
-    return `<tr><td>${d.displayName || d.id}</td><td><code>${d.id}</code></td><td>${d.ipAddress || '—'}</td><td>${lastSeen}</td></tr>`
+    return `<tr><td>${escapeHtml(d.displayName || d.id)}</td><td><code>${escapeHtml(d.id)}</code></td><td>${escapeHtml(d.ipAddress || '—')}</td><td>${escapeHtml(lastSeen)}</td></tr>`
   }).join('\n')
 
   return `<!DOCTYPE html>
@@ -240,6 +245,20 @@ oauthApp.get('/auth', async (c) => {
   // Preserve original OAuth params from the Matrix client
   const clientId = c.req.query('client_id') || DEFAULT_CLIENT_ID
   const redirectUri = c.req.query('redirect_uri') || ''
+
+  // Validate redirect_uri to prevent open redirects
+  if (redirectUri) {
+    try {
+      const parsed = new URL(redirectUri)
+      const blockedSchemes = ['javascript:', 'data:', 'blob:', 'vbscript:']
+      if (blockedSchemes.includes(parsed.protocol)) {
+        return c.json({ errcode: 'M_INVALID_PARAM', error: 'Invalid redirect_uri scheme' }, 400)
+      }
+    }
+    catch {
+      return c.json({ errcode: 'M_INVALID_PARAM', error: 'Invalid redirect_uri' }, 400)
+    }
+  }
   const state = c.req.query('state') || ''
   const scope = c.req.query('scope') || 'openid'
   const codeChallenge = c.req.query('code_challenge') || ''

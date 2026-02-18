@@ -69,10 +69,15 @@ export function createRoom(opts: CreateRoomOptions): string {
     },
   })
 
-  // 3. Power levels
+  // 3. Power levels (deep-merge users and events from override to preserve creator PL)
+  const overrideUsers = (opts.powerLevelContentOverride?.users as Record<string, number>) || {}
+  const overrideEvents = (opts.powerLevelContentOverride?.events as Record<string, number>) || {}
+  const { users: _u, events: _e, ...overrideRest } = opts.powerLevelContentOverride || {}
+
   const powerLevels: Record<string, unknown> = {
     users: {
-      [opts.creatorId]: preset === 'trusted_private_chat' ? 100 : 100,
+      [opts.creatorId]: 100,
+      ...overrideUsers,
     },
     users_default: preset === 'trusted_private_chat' ? 100 : 0,
     events: {
@@ -84,6 +89,7 @@ export function createRoom(opts: CreateRoomOptions): string {
       'm.room.tombstone': 100,
       'm.room.server_acl': 100,
       'm.room.encryption': 100,
+      ...overrideEvents,
     },
     events_default: 0,
     state_default: 50,
@@ -91,7 +97,7 @@ export function createRoom(opts: CreateRoomOptions): string {
     kick: 50,
     redact: 50,
     invite: preset === 'public_chat' ? 0 : 50,
-    ...opts.powerLevelContentOverride,
+    ...overrideRest,
   }
 
   createEvent({
@@ -151,9 +157,19 @@ export function createRoom(opts: CreateRoomOptions): string {
     })
   }
 
-  // 9. Initial state events
+  // 9. Initial state events (skip types already set by the server)
+  const protectedTypes = new Set([
+    'm.room.create',
+    'm.room.member',
+    'm.room.power_levels',
+    'm.room.join_rules',
+    'm.room.history_visibility',
+    'm.room.guest_access',
+  ])
   if (opts.initialState) {
     for (const stateEvent of opts.initialState) {
+      if (protectedTypes.has(stateEvent.type))
+        continue
       createEvent({
         roomId,
         sender: opts.creatorId,
@@ -212,6 +228,32 @@ export function getUserPowerLevel(roomId: string, userId: string): number {
     return usersMap[userId]!
   }
   return (content.users_default as number) ?? 0
+}
+
+// Get the required power level for an action (invite, kick, ban, redact, etc.)
+export function getActionPowerLevel(roomId: string, action: string): number {
+  const stateRow = db.select({ eventId: currentRoomState.eventId })
+    .from(currentRoomState)
+    .where(and(
+      eq(currentRoomState.roomId, roomId),
+      eq(currentRoomState.type, 'm.room.power_levels'),
+      eq(currentRoomState.stateKey, ''),
+    ))
+    .get()
+
+  if (!stateRow)
+    return 50 // default per spec
+
+  const event = db.select({ content: eventsState.content })
+    .from(eventsState)
+    .where(eq(eventsState.id, stateRow.eventId))
+    .get()
+
+  if (!event)
+    return 50
+
+  const content = event.content as Record<string, unknown>
+  return (content[action] as number) ?? 50
 }
 
 // Check if a user is a member of a room

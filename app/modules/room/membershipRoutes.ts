@@ -6,7 +6,7 @@ import { db } from '@/db'
 import { eventsState, roomMembers, rooms } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { checkRoomMemberLimit, checkUserRoomLimit } from '@/modules/room/limits'
-import { getRoomJoinRule, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
+import { getActionPowerLevel, getRoomJoinRule, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
 import { getRoomId } from '@/modules/room/shared'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError, matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
@@ -93,6 +93,11 @@ roomMembershipRouter.post('/:roomId/invite', async (c) => {
   if (senderMembership !== 'join')
     return matrixForbidden(c, 'Not a member of this room')
 
+  const senderPower = getUserPowerLevel(roomId, auth.userId)
+  const invitePower = getActionPowerLevel(roomId, 'invite')
+  if (senderPower < invitePower)
+    return matrixForbidden(c, 'Insufficient power level to invite')
+
   const targetMembership = getRoomMembership(roomId, targetUserId)
   if (targetMembership === 'join')
     return matrixError(c, 'M_UNKNOWN', 'User already in room')
@@ -121,9 +126,12 @@ roomMembershipRouter.post('/:roomId/kick', async (c) => {
     return vKick.response
 
   const senderPower = getUserPowerLevel(roomId, auth.userId)
+  const kickThreshold = getActionPowerLevel(roomId, 'kick')
+  if (senderPower < kickThreshold)
+    return matrixForbidden(c, 'Insufficient power level to kick')
   const targetPower = getUserPowerLevel(roomId, vKick.data.user_id)
   if (senderPower <= targetPower)
-    return matrixForbidden(c, 'Insufficient power level')
+    return matrixForbidden(c, 'Cannot kick user with equal or higher power level')
 
   createEvent({
     roomId,
@@ -148,9 +156,12 @@ roomMembershipRouter.post('/:roomId/ban', async (c) => {
     return vBan.response
 
   const senderPower = getUserPowerLevel(roomId, auth.userId)
+  const banThreshold = getActionPowerLevel(roomId, 'ban')
+  if (senderPower < banThreshold)
+    return matrixForbidden(c, 'Insufficient power level to ban')
   const targetPower = getUserPowerLevel(roomId, vBan.data.user_id)
   if (senderPower <= targetPower)
-    return matrixForbidden(c, 'Insufficient power level')
+    return matrixForbidden(c, 'Cannot ban user with equal or higher power level')
 
   createEvent({
     roomId,

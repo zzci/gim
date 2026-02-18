@@ -25,6 +25,7 @@ signaturesUploadRoute.post('/', async (c) => {
       continue
     }
 
+    let anySuccess = false
     for (const [keyId, signedObject] of Object.entries(keyMap)) {
       const newSignatures = signedObject.signatures || {}
       const deviceIdCandidates = [keyId]
@@ -53,6 +54,7 @@ signaturesUploadRoute.post('/', async (c) => {
           .where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, dk.deviceId)))
           .run()
         logger.debug('signatures_upload_applied_device_key', { userId, keyId, matchedDeviceId: dk.deviceId })
+        anySuccess = true
         continue
       }
 
@@ -65,7 +67,7 @@ signaturesUploadRoute.post('/', async (c) => {
       for (const csk of csKeys) {
         const keyData = csk.keyData as any
         const keys = keyData.keys || {}
-        if (Object.keys(keys).some((k: string) => k.includes(keyId) || keyId === k)) {
+        if (Object.keys(keys).some((k: string) => k === keyId || k === `ed25519:${keyId}` || keyId === `ed25519:${k.split(':').pop()}`)) {
           const mergedSigs = { ...(keyData.signatures || {}) }
           for (const [sigUserId, sigs] of Object.entries(newSignatures) as [string, Record<string, string>][]) {
             mergedSigs[sigUserId] = { ...(mergedSigs[sigUserId] || {}), ...sigs }
@@ -79,6 +81,7 @@ signaturesUploadRoute.post('/', async (c) => {
             .run()
           logger.debug('signatures_upload_applied_cross_signing_key', { userId, keyId, matchedKeyType: csk.keyType })
           matched = true
+          anySuccess = true
           break
         }
       }
@@ -91,11 +94,13 @@ signaturesUploadRoute.post('/', async (c) => {
       }
     }
 
-    db.insert(e2eeDeviceListChanges).values({
-      userId,
-      ulid: generateUlid(),
-    }).run()
-    notifyUser(userId)
+    if (anySuccess) {
+      db.insert(e2eeDeviceListChanges).values({
+        userId,
+        ulid: generateUlid(),
+      }).run()
+      notifyUser(userId)
+    }
   }
 
   return c.json({ failures })

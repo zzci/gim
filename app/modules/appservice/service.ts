@@ -1,5 +1,5 @@
 import type { CompiledRegistration } from './config'
-import { eq, gt, sql } from 'drizzle-orm'
+import { eq, gt, inArray, sql } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { appservices, eventsState, eventsTimeline, roomAliases, roomMembers } from '@/db/schema'
@@ -21,14 +21,12 @@ function getRoomAliasesForRooms(roomIds: string[]): Map<string, string[]> {
   if (roomIds.length === 0)
     return aliasMap
 
-  const allAliases = db.select().from(roomAliases).all()
-  for (const a of allAliases) {
-    if (roomIds.includes(a.roomId)) {
-      const existing = aliasMap.get(a.roomId)
-      if (existing)
-        existing.push(a.alias)
-      else aliasMap.set(a.roomId, [a.alias])
-    }
+  const matchedAliases = db.select().from(roomAliases).where(inArray(roomAliases.roomId, roomIds)).all()
+  for (const a of matchedAliases) {
+    const existing = aliasMap.get(a.roomId)
+    if (existing)
+      existing.push(a.alias)
+    else aliasMap.set(a.roomId, [a.alias])
   }
   return aliasMap
 }

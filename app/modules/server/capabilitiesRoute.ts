@@ -44,7 +44,7 @@ capabilitiesRoute.get('/', async (c) => {
   }
   catch (error) {
     logger.error(error)
-    c.json({
+    return c.json({
       ok: false,
       error,
     })

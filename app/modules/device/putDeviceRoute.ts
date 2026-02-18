@@ -21,6 +21,7 @@ devicePutRoute.put('/:deviceId', async (c) => {
   await db.update(devices)
     .set({ displayName: v.data.display_name })
     .where(and(eq(devices.userId, auth.userId), eq(devices.id, deviceId)))
+    .run()
 
   return c.json({})
 })

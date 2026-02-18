@@ -49,6 +49,7 @@ export function registerAdminAuthRoutes(adminRoute: Hono) {
 
     setCookie(c, 'admin_token', token, {
       httpOnly: true,
+      secure: true,
       sameSite: 'Strict',
       path: '/admin',
       maxAge: 7 * 24 * 60 * 60, // 7 days

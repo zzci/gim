@@ -248,12 +248,13 @@ export function validateAuthCode(
     return { error: 'invalid_grant', error_description: 'Redirect URI mismatch' }
   }
 
-  // Verify PKCE
-  if (payload.codeChallenge) {
-    const expected = createHash('sha256').update(codeVerifier).digest('base64url')
-    if (expected !== payload.codeChallenge) {
-      return { error: 'invalid_grant', error_description: 'PKCE verification failed' }
-    }
+  // Verify PKCE (mandatory per OAuth 2.1)
+  if (!payload.codeChallenge) {
+    return { error: 'invalid_grant', error_description: 'PKCE code_challenge is required' }
+  }
+  const expected = createHash('sha256').update(codeVerifier).digest('base64url')
+  if (expected !== payload.codeChallenge) {
+    return { error: 'invalid_grant', error_description: 'PKCE verification failed' }
   }
 
   return {
