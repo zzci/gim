@@ -3,6 +3,7 @@ import { db, sqlite } from '@/db'
 import {
   accountData,
   devices,
+  e2eeDeviceListChanges,
   e2eeFallbackKeys,
   e2eeOneTimeKeys,
   e2eeToDeviceMessages,
@@ -357,7 +358,7 @@ function processToDevice(userId: string, deviceId: string, isTrustedDevice: bool
   })
 }
 
-function processE2ee(userId: string, deviceId: string): Record<string, any> {
+function processE2ee(userId: string, deviceId: string, isTrustedDevice: boolean, since?: string): { data: Record<string, any>, maxDeviceListUlid: string } {
   const otkResult = db.select({ cnt: count() }).from(e2eeOneTimeKeys).where(and(
     eq(e2eeOneTimeKeys.userId, userId),
     eq(e2eeOneTimeKeys.deviceId, deviceId),
@@ -373,25 +374,59 @@ function processE2ee(userId: string, deviceId: string): Record<string, any> {
     .all()
     .map(r => r.algorithm)
 
+  // Device list changes (users whose keys changed since last sync)
+  let changedUsers: string[] = []
+  let maxDeviceListUlid = ''
+  if (since) {
+    const changeConditions = [gt(e2eeDeviceListChanges.ulid, since)]
+    if (!isTrustedDevice) {
+      changeConditions.push(eq(e2eeDeviceListChanges.userId, userId))
+    }
+    const changes = db.select({
+      userId: e2eeDeviceListChanges.userId,
+      ulid: e2eeDeviceListChanges.ulid,
+    }).from(e2eeDeviceListChanges).where(and(...changeConditions)).all()
+    changedUsers = [...new Set(changes.map(c => c.userId))]
+    if (changes.length > 0) {
+      maxDeviceListUlid = changes.reduce((max, c) => c.ulid > max ? c.ulid : max, '')
+    }
+  }
+
   return {
-    device_one_time_keys_count: {
-      signed_curve25519: otkResult?.cnt ?? 0,
+    data: {
+      device_one_time_keys_count: {
+        signed_curve25519: otkResult?.cnt ?? 0,
+      },
+      device_unused_fallback_key_types: fallbackTypes,
+      device_lists: {
+        changed: changedUsers,
+        left: [],
+      },
     },
-    device_unused_fallback_key_types: fallbackTypes,
+    maxDeviceListUlid,
   }
 }
 
-function processAccountData(userId: string, since?: string): Record<string, any> {
-  const conditions = [
-    eq(accountData.userId, userId),
-    eq(accountData.roomId, ''),
-  ]
-  if (since) {
-    conditions.push(gt(accountData.streamId, since))
+function processAccountData(userId: string, isTrustedDevice: boolean, since?: string): Record<string, any> {
+  const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
+  let globalData: any[] = []
+
+  if (isTrustedDevice) {
+    const conditions = [
+      eq(accountData.userId, userId),
+      eq(accountData.roomId, ''),
+    ]
+    if (since) {
+      conditions.push(gt(accountData.streamId, since))
+    }
+    const rows = db.select().from(accountData).where(and(...conditions)).all()
+    globalData = rows.map(d => ({ type: d.type, content: d.content }))
   }
 
-  const rows = db.select().from(accountData).where(and(...conditions)).all()
-  const globalData = rows.map(d => ({ type: d.type, content: d.content }))
+  // Always include backup_disabled on initial sync so clients know recovery is not needed
+  if (!since && !globalData.some((d: any) => d.type === BACKUP_DISABLED_TYPE)) {
+    globalData.push({ type: BACKUP_DISABLED_TYPE, content: { disabled: true } })
+  }
 
   return {
     global: globalData,
@@ -504,16 +539,21 @@ export function buildSlidingSyncResponse(
     extensions.to_device = processToDevice(userId, deviceId, isTrustedDevice, body.extensions.to_device.since)
   }
 
+  let maxDeviceListUlid = ''
   if (body.extensions?.e2ee?.enabled) {
-    extensions.e2ee = processE2ee(userId, deviceId)
+    const e2ee = processE2ee(userId, deviceId, isTrustedDevice, since)
+    extensions.e2ee = e2ee.data
+    maxDeviceListUlid = e2ee.maxDeviceListUlid
   }
 
   if (body.extensions?.account_data?.enabled) {
-    extensions.account_data = isTrustedDevice ? processAccountData(userId, since) : { global: [] }
+    extensions.account_data = processAccountData(userId, isTrustedDevice, since)
   }
 
-  // Position token
-  const pos = getMaxEventId() || '0'
+  // Position token — advance past all streams so incremental sync doesn't re-deliver
+  let pos = getMaxEventId() || '0'
+  if (maxDeviceListUlid && maxDeviceListUlid > pos)
+    pos = maxDeviceListUlid
 
   return {
     pos,
@@ -527,6 +567,10 @@ export function hasSlidingSyncChanges(response: SlidingSyncResponse): boolean {
   if (Object.keys(response.rooms).length > 0)
     return true
   if (response.extensions.to_device?.events?.length > 0)
+    return true
+  if (response.extensions.e2ee?.device_lists?.changed?.length > 0)
+    return true
+  if (response.extensions.account_data?.global?.length > 0)
     return true
   return false
 }
