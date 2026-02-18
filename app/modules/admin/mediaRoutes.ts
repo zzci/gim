@@ -7,8 +7,8 @@ import { getAdminContext, logAdminAction } from './helpers'
 export function registerAdminMediaRoutes(adminRoute: Hono) {
   // GET /api/media — List media
   adminRoute.get('/api/media', (c) => {
-    const limit = Number(c.req.query('limit') || 50)
-    const offset = Number(c.req.query('offset') || 0)
+    const limit = Math.min(Math.max(Number(c.req.query('limit') || 50), 1), 1000)
+    const offset = Math.max(Number(c.req.query('offset') || 0), 0)
     const type = c.req.query('type')
 
     const where = type ? like(media.contentType, `%${type}%`) : undefined
@@ -27,14 +27,14 @@ export function registerAdminMediaRoutes(adminRoute: Hono) {
     if (!record)
       return c.json({})
 
-    // Insert into soft delete queue
-    db.insert(mediaDeletions).values({
-      mediaId,
-      storagePath: record.storagePath,
-    }).run()
-
-    // Remove from media table (makes it inaccessible immediately)
-    db.delete(media).where(eq(media.id, mediaId)).run()
+    // Atomically queue for deletion and remove from media table
+    db.transaction((tx) => {
+      tx.insert(mediaDeletions).values({
+        mediaId,
+        storagePath: record.storagePath,
+      }).run()
+      tx.delete(media).where(eq(media.id, mediaId)).run()
+    })
 
     const { adminUserId, ip } = getAdminContext(c)
     logAdminAction(adminUserId, 'media.delete', 'media', mediaId, { contentType: record.contentType, userId: record.userId }, ip)

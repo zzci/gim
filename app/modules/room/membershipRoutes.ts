@@ -181,15 +181,23 @@ roomMembershipRouter.post('/:roomId/unban', async (c) => {
   const roomId = getRoomId(c)
   const body = await c.req.json()
 
-  if (!body.user_id)
-    return matrixError(c, 'M_MISSING_PARAM', 'Missing user_id')
+  const vUnban = validate(c, membershipBody, body)
+  if (!vUnban.success)
+    return vUnban.response
+
+  const senderMembership = getRoomMembership(roomId, auth.userId)
+  if (senderMembership !== 'join')
+    return matrixForbidden(c, 'Not a member of this room')
 
   const senderPower = getUserPowerLevel(roomId, auth.userId)
-  const targetPower = getUserPowerLevel(roomId, body.user_id)
+  const banThreshold = getActionPowerLevel(roomId, 'ban')
+  if (senderPower < banThreshold)
+    return matrixForbidden(c, 'Insufficient power level to unban')
+  const targetPower = getUserPowerLevel(roomId, vUnban.data.user_id)
   if (senderPower <= targetPower)
-    return matrixForbidden(c, 'Insufficient power level')
+    return matrixForbidden(c, 'Cannot unban user with equal or higher power level')
 
-  const membership = getRoomMembership(roomId, body.user_id)
+  const membership = getRoomMembership(roomId, vUnban.data.user_id)
   if (membership !== 'ban')
     return matrixError(c, 'M_UNKNOWN', 'User is not banned')
 
@@ -197,7 +205,7 @@ roomMembershipRouter.post('/:roomId/unban', async (c) => {
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
-    stateKey: body.user_id,
+    stateKey: vUnban.data.user_id,
     content: { membership: 'leave' },
   })
 

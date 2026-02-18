@@ -5,7 +5,7 @@ import { serverName } from '@/config'
 import { db } from '@/db'
 import { roomAliases, rooms } from '@/db/schema'
 import { queryAppServiceRoomAlias } from '@/modules/appservice/service'
-import { getRoomMembership } from '@/modules/room/service'
+import { getActionPowerLevel, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError, matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 
@@ -35,6 +35,12 @@ roomAliasRoute.put('/:roomAlias', authMiddleware, async (c) => {
   const membership = getRoomMembership(roomId, auth.userId)
   if (membership !== 'join') {
     return matrixForbidden(c, 'Not a member of this room')
+  }
+
+  const userPower = getUserPowerLevel(roomId, auth.userId)
+  const requiredPower = getActionPowerLevel(roomId, 'state_default')
+  if (userPower < requiredPower) {
+    return matrixForbidden(c, 'Insufficient power level to create room alias')
   }
 
   try {

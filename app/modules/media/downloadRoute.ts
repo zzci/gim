@@ -49,7 +49,8 @@ async function handleDownload(c: any) {
   }
 
   if (record.fileName) {
-    headers['Content-Disposition'] = `inline; filename="${sanitizeFileName(record.fileName)}"`
+    const safe = sanitizeFileName(record.fileName)
+    headers['Content-Disposition'] = `inline; filename*=UTF-8''${encodeURIComponent(safe)}`
   }
 
   return new Response(file.stream(), { headers })

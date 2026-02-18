@@ -488,10 +488,13 @@ export function buildSlidingSyncResponse(
     }
   }
 
-  // Add room subscriptions
+  // Add room subscriptions (only for rooms the user is actually joined to)
   if (isTrustedDevice && body.room_subscriptions) {
+    const userRoomIds = new Set(allRooms.map(r => r.roomId))
     for (const roomId of Object.keys(body.room_subscriptions)) {
-      roomsToInclude.add(roomId)
+      if (userRoomIds.has(roomId)) {
+        roomsToInclude.add(roomId)
+      }
     }
   }
 

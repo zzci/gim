@@ -7,8 +7,8 @@ import { getAdminContext, logAdminAction } from './helpers'
 export function registerAdminUsersRoutes(adminRoute: Hono) {
   // GET /api/users — Paginated user list
   adminRoute.get('/api/users', (c) => {
-    const limit = Number(c.req.query('limit') || 50)
-    const offset = Number(c.req.query('offset') || 0)
+    const limit = Math.min(Math.max(Number(c.req.query('limit') || 50), 1), 1000)
+    const offset = Math.max(Number(c.req.query('offset') || 0), 0)
     const search = c.req.query('search')
 
     // Use prefix match for @user:server format (can use primary key index)

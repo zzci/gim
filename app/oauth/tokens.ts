@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { createHash, createSign, generateKeyPairSync, randomBytes } from 'node:crypto'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, gte, isNull, or } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { devices, oauthTokens } from '@/db/schema'
@@ -292,32 +292,31 @@ export function exchangeAuthCode(
 export function exchangeRefreshToken(
   refreshToken: string,
 ): TokenResult | TokenError {
-  // Atomically consume the refresh token to prevent replay under concurrency
+  // Atomically consume the refresh token: check unconsumed + not expired in one UPDATE
   const consumed = db.update(oauthTokens)
     .set({ consumedAt: new Date() })
     .where(and(
       eq(oauthTokens.id, `RefreshToken:${refreshToken}`),
       isNull(oauthTokens.consumedAt),
+      or(isNull(oauthTokens.expiresAt), gte(oauthTokens.expiresAt, new Date())),
     ))
     .run()
 
   if ((consumed as any).changes === 0) {
-    const row = db.select({ id: oauthTokens.id, consumedAt: oauthTokens.consumedAt })
+    const row = db.select({ id: oauthTokens.id, consumedAt: oauthTokens.consumedAt, expiresAt: oauthTokens.expiresAt })
       .from(oauthTokens)
       .where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`))
       .get()
     if (!row)
       return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
+    if (row.expiresAt && row.expiresAt.getTime() < Date.now())
+      return { error: 'invalid_grant', error_description: 'Refresh token expired' }
     return { error: 'invalid_grant', error_description: 'Refresh token already used' }
   }
 
   const row = db.select().from(oauthTokens).where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`)).get()
   if (!row)
     return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
-
-  if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
-    return { error: 'invalid_grant', error_description: 'Refresh token expired' }
-  }
 
   const accountId = row.accountId!
   let scope = row.scope || 'openid'

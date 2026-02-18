@@ -325,7 +325,8 @@ oauthApp.get('/auth/callback', async (c) => {
   const error = c.req.query('error')
 
   if (error) {
-    return c.json({ errcode: 'M_UNKNOWN', error: `Upstream authentication failed: ${error}` }, 502)
+    logger.warn('oauth_upstream_error', { error, state })
+    return c.json({ errcode: 'M_UNKNOWN', error: 'Upstream authentication failed' }, 502)
   }
 
   if (!code || !state) {
