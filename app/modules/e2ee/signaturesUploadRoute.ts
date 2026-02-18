@@ -17,8 +17,21 @@ signaturesUploadRoute.post('/', async (c) => {
   for (const [userId, keyMap] of Object.entries(body) as [string, Record<string, any>][]) {
     for (const [keyId, signedObject] of Object.entries(keyMap)) {
       const newSignatures = signedObject.signatures || {}
+      const deviceIdCandidates = [keyId]
+      if (keyId.startsWith('ed25519:')) {
+        deviceIdCandidates.push(keyId.slice('ed25519:'.length))
+      }
+      else {
+        deviceIdCandidates.push(`ed25519:${keyId}`)
+      }
 
-      const dk = db.select().from(e2eeDeviceKeys).where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, keyId))).get()
+      const dk = db.select().from(e2eeDeviceKeys).where(and(
+        eq(e2eeDeviceKeys.userId, userId),
+        eq(e2eeDeviceKeys.deviceId, deviceIdCandidates[0]!),
+      )).get() || db.select().from(e2eeDeviceKeys).where(and(
+        eq(e2eeDeviceKeys.userId, userId),
+        eq(e2eeDeviceKeys.deviceId, deviceIdCandidates[1]!),
+      )).get()
 
       if (dk) {
         const merged = { ...(dk.signatures as Record<string, Record<string, string>>) }
@@ -29,6 +42,7 @@ signaturesUploadRoute.post('/', async (c) => {
           .set({ signatures: merged })
           .where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, keyId)))
           .run()
+        logger.debug('signatures_upload_applied_device_key', { userId, keyId, matchedDeviceId: dk.deviceId })
         continue
       }
 
@@ -53,6 +67,7 @@ signaturesUploadRoute.post('/', async (c) => {
               eq(accountDataCrossSigning.keyType, csk.keyType),
             ))
             .run()
+          logger.debug('signatures_upload_applied_cross_signing_key', { userId, keyId, matchedKeyType: csk.keyType })
           matched = true
           break
         }
@@ -62,6 +77,7 @@ signaturesUploadRoute.post('/', async (c) => {
         if (!failures[userId])
           failures[userId] = {}
         failures[userId][keyId] = { errcode: 'M_NOT_FOUND', error: 'Key not found' }
+        logger.warn('signatures_upload_key_not_found', { userId, keyId })
       }
     }
 
