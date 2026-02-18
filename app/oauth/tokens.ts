@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { createHash, createSign, generateKeyPairSync, randomBytes } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { devices, oauthTokens } from '@/db/schema'
@@ -221,15 +221,18 @@ export function validateAuthCode(
   clientId: string,
   redirectUri: string,
 ): AuthCodeInfo | TokenError {
-  // Find and delete code (single-use)
+  // Atomically claim the code: delete first, then check if anything was deleted.
+  // This prevents concurrent exchanges from both succeeding.
   const row = db.select().from(oauthTokens).where(eq(oauthTokens.id, `AuthorizationCode:${code}`)).get()
-
   if (!row) {
     return { error: 'invalid_grant', error_description: 'Authorization code not found' }
   }
 
-  // Delete immediately (single-use)
-  db.delete(oauthTokens).where(eq(oauthTokens.id, `AuthorizationCode:${code}`)).run()
+  const deleted = db.delete(oauthTokens).where(eq(oauthTokens.id, `AuthorizationCode:${code}`)).run()
+  if ((deleted as any).changes === 0) {
+    // Another concurrent request already consumed this code
+    return { error: 'invalid_grant', error_description: 'Authorization code already used' }
+  }
 
   if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
     return { error: 'invalid_grant', error_description: 'Authorization code expired' }
@@ -289,25 +292,32 @@ export function exchangeAuthCode(
 export function exchangeRefreshToken(
   refreshToken: string,
 ): TokenResult | TokenError {
-  const row = db.select().from(oauthTokens).where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`)).get()
+  // Atomically consume the refresh token to prevent replay under concurrency
+  const consumed = db.update(oauthTokens)
+    .set({ consumedAt: new Date() })
+    .where(and(
+      eq(oauthTokens.id, `RefreshToken:${refreshToken}`),
+      isNull(oauthTokens.consumedAt),
+    ))
+    .run()
 
-  if (!row) {
-    return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
+  if ((consumed as any).changes === 0) {
+    const row = db.select({ id: oauthTokens.id, consumedAt: oauthTokens.consumedAt })
+      .from(oauthTokens)
+      .where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`))
+      .get()
+    if (!row)
+      return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
+    return { error: 'invalid_grant', error_description: 'Refresh token already used' }
   }
+
+  const row = db.select().from(oauthTokens).where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`)).get()
+  if (!row)
+    return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
 
   if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
     return { error: 'invalid_grant', error_description: 'Refresh token expired' }
   }
-
-  if (row.consumedAt) {
-    return { error: 'invalid_grant', error_description: 'Refresh token already used' }
-  }
-
-  // Consume old refresh token
-  db.update(oauthTokens)
-    .set({ consumedAt: new Date() })
-    .where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`))
-    .run()
 
   const accountId = row.accountId!
   let scope = row.scope || 'openid'

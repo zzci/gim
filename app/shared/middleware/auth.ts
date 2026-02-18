@@ -38,9 +38,7 @@ function extractToken(c: Context): string | null {
   if (auth?.startsWith('Bearer ')) {
     return auth.slice(7)
   }
-  // Also support access_token query parameter (legacy)
-  const query = c.req.query('access_token')
-  return query ?? null
+  return null
 }
 
 export async function authMiddleware(c: Context, next: Next) {

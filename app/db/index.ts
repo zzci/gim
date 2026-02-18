@@ -23,5 +23,13 @@ sqlite.exec('PRAGMA busy_timeout = 5000')
 export const db = drizzle({ client: sqlite, schema })
 export { sqlite }
 
-// Auto-migrate on startup
-migrate(db, { migrationsFolder: resolve(import.meta.dir, '../../drizzle') })
+// Auto-migrate on startup (guarded for concurrent process / test worker startup)
+try {
+  migrate(db, { migrationsFolder: resolve(import.meta.dir, '../../drizzle') })
+}
+catch (err: any) {
+  // Ignore "already exists" errors from parallel startup; rethrow everything else
+  if (!String(err?.message).includes('already exists')) {
+    throw err
+  }
+}
