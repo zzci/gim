@@ -31,12 +31,44 @@ function hasOwnDeviceEd25519Key(deviceKeys: Record<string, unknown>, deviceId: s
   return Object.prototype.hasOwnProperty.call(keys, `ed25519:${deviceId}`)
 }
 
+function summarizeUploadedDeviceKeys(deviceKeys: Record<string, unknown>) {
+  const rawKeys = (deviceKeys.keys || {}) as Record<string, unknown>
+  const keyIds = Object.keys(rawKeys)
+  const keyPreview = Object.fromEntries(
+    Object.entries(rawKeys).map(([k, v]) => {
+      if (typeof v === 'string') {
+        return [k, v.slice(0, 24)]
+      }
+      return [k, typeof v]
+    }),
+  )
+
+  const rawSignatures = (deviceKeys.signatures || {}) as Record<string, Record<string, string>>
+  const signatureSummary = Object.fromEntries(
+    Object.entries(rawSignatures).map(([userId, sigs]) => [userId, Object.keys(sigs || {})]),
+  )
+
+  return {
+    uploadedDeviceId: deviceKeys.device_id,
+    userId: deviceKeys.user_id,
+    keyIds,
+    keyPreview,
+    signatures: signatureSummary,
+  }
+}
+
 keysUploadRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const body = await c.req.json()
 
   if (body.device_keys) {
     const dk = body.device_keys
+    const uploadedSummary = summarizeUploadedDeviceKeys(dk as Record<string, unknown>)
+    logger.debug('device_keys_upload_payload', {
+      authUserId: auth.userId,
+      authDeviceId: auth.deviceId,
+      ...uploadedSummary,
+    })
     const trustedDevice = db.select({ id: devices.id })
       .from(devices)
       .where(and(
@@ -56,7 +88,16 @@ keysUploadRoute.post('/', async (c) => {
 
     const sigResult = verifyDeviceKeySignature(dk, auth.userId, auth.deviceId)
     if (!sigResult.valid) {
-      logger.warn('device_key_signature_failed', { userId: auth.userId, deviceId: auth.deviceId, reason: sigResult.reason })
+      const uploadedKeys = ((dk as Record<string, unknown>).keys || {}) as Record<string, unknown>
+      const uploadedKeyIds = Object.keys(uploadedKeys)
+      logger.warn('device_key_signature_failed', {
+        userId: auth.userId,
+        deviceId: auth.deviceId,
+        reason: sigResult.reason,
+        uploadedKeyIds,
+        uploadedEd25519KeyIds: uploadedKeyIds.filter(k => k.startsWith('ed25519:')),
+        uploadedCurve25519KeyIds: uploadedKeyIds.filter(k => k.startsWith('curve25519:')),
+      })
       if (shouldStrictlyRejectDeviceKeySignatureFailure())
         return matrixError(c, 'M_INVALID_PARAM', 'Device key signature verification failed')
     }
