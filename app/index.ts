@@ -34,7 +34,7 @@ import { buildInfo, corsOrigins, listenHost, listenPort, serverName, version } f
 import '@/global'
 
 async function run() {
-  const app = new Hono()
+  const app = new Hono({ strict: false })
 
   // 1. Request ID (first — everything depends on this)
   app.use('/*', requestIdMiddleware)
