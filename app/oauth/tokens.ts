@@ -16,6 +16,9 @@ const issuer = `https://${serverName}/oauth`
 const ACCESS_TOKEN_TTL = 86400 // 24h in seconds
 const REFRESH_TOKEN_TTL = 14 * 86400 // 14d in seconds
 const GRANT_TTL = 14 * 86400 // 14d in seconds
+const STABLE_DEVICE_SCOPE_PREFIX = 'urn:matrix:client:device:'
+const MSC2967_DEVICE_SCOPE_PREFIX = 'urn:matrix:org.matrix.msc2967.client:device:'
+const DEVICE_SCOPE_PREFIXES = [STABLE_DEVICE_SCOPE_PREFIX, MSC2967_DEVICE_SCOPE_PREFIX]
 
 export interface TokenResult {
   access_token: string
@@ -67,12 +70,42 @@ function createIdToken(sub: string, clientId: string, nonce?: string): string {
   return signJwt(claims)
 }
 
-// Validate Matrix device_id for MSC2965 flows.
-// Keep it strict/alnum-only to avoid client incompatibilities with symbols.
+// Validate Matrix device_id for OAuth/MSC2965 flows.
+// Accept RFC3986 unreserved chars to interop with Matrix clients.
 function isValidDeviceId(id: string): boolean {
   if (!id || id.length > 255)
     return false
-  return /^[a-z0-9]+$/i.test(id)
+  return /^[\w.~-]+$/.test(id)
+}
+
+function extractDeviceScope(scope: string): { deviceId: string, prefix: string } | null {
+  for (const token of scope.split(/\s+/).filter(Boolean)) {
+    for (const prefix of DEVICE_SCOPE_PREFIXES) {
+      if (token.startsWith(prefix)) {
+        const deviceId = token.slice(prefix.length)
+        if (deviceId)
+          return { deviceId, prefix }
+      }
+    }
+  }
+  return null
+}
+
+function upsertDeviceScope(scope: string, deviceId: string, preferredPrefix = STABLE_DEVICE_SCOPE_PREFIX): string {
+  const tokens = scope.split(/\s+/).filter(Boolean)
+  let replaced = false
+  const next = tokens.map((token) => {
+    for (const prefix of DEVICE_SCOPE_PREFIXES) {
+      if (token.startsWith(prefix)) {
+        replaced = true
+        return `${preferredPrefix}${deviceId}`
+      }
+    }
+    return token
+  })
+  if (!replaced)
+    next.push(`${preferredPrefix}${deviceId}`)
+  return next.join(' ')
 }
 
 function createTokenPair(
@@ -84,9 +117,9 @@ function createTokenPair(
 ): TokenResult {
   const nowMs = Date.now()
 
-  // Extract deviceId from scope, generate if missing or invalid
-  const deviceMatch = scope.match(/urn:matrix:client:device:(\S+)/)
-  let deviceId = deviceMatch?.[1] || null
+  // Extract deviceId from scope (stable + MSC2967), generate if missing or invalid
+  const deviceScope = extractDeviceScope(scope)
+  let deviceId = deviceScope?.deviceId || null
 
   if (!deviceId || !isValidDeviceId(deviceId)) {
     const userId = `@${accountId}:${serverName}`
@@ -101,13 +134,8 @@ function createTokenPair(
         break
     }
 
-    // Inject device scope: replace invalid one or append
-    if (deviceMatch) {
-      scope = scope.replace(/urn:matrix:client:device:\S+/, `urn:matrix:client:device:${deviceId}`)
-    }
-    else {
-      scope = `${scope} urn:matrix:client:device:${deviceId}`
-    }
+    // Inject device scope: replace invalid one or append.
+    scope = upsertDeviceScope(scope, deviceId, deviceScope?.prefix || STABLE_DEVICE_SCOPE_PREFIX)
 
     // Create device record
     db.insert(devices).values({
@@ -287,8 +315,8 @@ export function exchangeRefreshToken(
 
   // Preserve device_id from the old token — even if scope doesn't contain it
   // (handles tokens created before the device_id-in-scope fix)
-  if (row.deviceId && !scope.includes('urn:matrix:client:device:')) {
-    scope = `${scope} urn:matrix:client:device:${row.deviceId}`
+  if (row.deviceId && !extractDeviceScope(scope)) {
+    scope = upsertDeviceScope(scope, row.deviceId)
   }
 
   return createTokenPair(accountId, scope, clientId, grantId)

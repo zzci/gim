@@ -12,8 +12,16 @@ import { exchangeAuthCode, exchangeRefreshToken, signingJwk, toTokenResponse } f
 export const DEFAULT_CLIENT_ID = 'matrix'
 const issuer = `https://${serverName}/oauth`
 const authCallbackUrl = `https://${serverName}/oauth/auth/callback`
+const STABLE_DEVICE_SCOPE_PREFIX = 'urn:matrix:client:device:'
+const MSC2967_DEVICE_SCOPE_PREFIX = 'urn:matrix:org.matrix.msc2967.client:device:'
 
 const OAUTH_STATE_TTL = 600 // 10 minutes
+
+function maskValue(value: string): string {
+  if (value.length <= 12)
+    return value
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
+}
 
 // ---- Upstream OIDC discovery (lazy-cached) ----
 
@@ -80,7 +88,14 @@ export function discoveryDocument() {
     'jwks_uri': `${issuer}/jwks`,
     'registration_endpoint': `${issuer}/register`,
     'userinfo_endpoint': `${issuer}/me`,
-    'scopes_supported': ['openid', 'profile', 'urn:matrix:client:api:*'],
+    'scopes_supported': [
+      'openid',
+      'profile',
+      'urn:matrix:client:api:*',
+      'urn:matrix:org.matrix.msc2967.client:api:*',
+      'urn:matrix:client:device:*',
+      'urn:matrix:org.matrix.msc2967.client:device:*',
+    ],
     'response_types_supported': ['code'],
     'grant_types_supported': ['authorization_code', 'refresh_token'],
     'token_endpoint_auth_methods_supported': ['none', 'client_secret_basic'],
@@ -230,6 +245,29 @@ oauthApp.get('/auth', async (c) => {
   const codeChallenge = c.req.query('code_challenge') || ''
   const codeChallengeMethod = c.req.query('code_challenge_method') || ''
   const nonce = c.req.query('nonce') || ''
+  const prompt = c.req.query('prompt') || ''
+  const query = c.req.query()
+
+  const deviceScopeToken = scope.split(/\s+/).find(token =>
+    token.startsWith(STABLE_DEVICE_SCOPE_PREFIX) || token.startsWith(MSC2967_DEVICE_SCOPE_PREFIX),
+  )
+  const safeQuery = Object.fromEntries(
+    Object.entries(query).map(([key, value]) => {
+      if (key === 'code_challenge' || key === 'state' || key === 'nonce')
+        return [key, maskValue(value)]
+      return [key, value]
+    }),
+  )
+  logger.debug('oauth_auth_scope_received', {
+    clientId,
+    query: safeQuery,
+    redirectUri,
+    scope,
+    prompt: prompt || null,
+    codeChallengeMethod: codeChallengeMethod || null,
+    hasDeviceScope: !!deviceScopeToken,
+    deviceScope: deviceScopeToken || null,
+  })
 
   // Generate PKCE for upstream request
   const upstreamState = randomBytes(16).toString('hex')
