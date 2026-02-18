@@ -10,9 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 bun run dev                  # Start dev server with hot reload (port 3000)
-bun run build                # Bundle to dist/index.js
-bun run start                # Build + run
-bun run compile              # Create standalone binary
+bun run start                # Run server (no bundling)
 
 bun run lint                 # ESLint check
 bun run lint:fix             # ESLint auto-fix
@@ -21,6 +19,7 @@ bun test                     # Run all tests (Bun test runner)
 bun test tests/rooms.test.ts # Run a single test file
 
 bun run db:generate          # Generate Drizzle migrations
+bun run db:migrate           # Run Drizzle migrations
 bun run db:push              # Push schema directly to DB (dev)
 bun run db:studio            # Visual DB browser on :3000
 
@@ -51,12 +50,9 @@ bun run admin:create @user:server  # Grant admin role to a user
 
 ### Module Pattern
 
-Each feature lives in `app/modules/{feature}/` with:
-- `routes.ts` — Hono route handlers (always present)
-- `service.ts` — business logic (when needed)
-- `middleware.ts` — feature-specific middleware (rare)
+Each feature lives in `app/modules/{feature}/` with individual route files exported from `index.ts`. Larger modules split routes into separate files (e.g., `keysUploadRoute.ts`, `keysQueryRoute.ts`), while simpler ones may combine routes. Business logic lives in `service.ts` when needed.
 
-Modules: `account`, `admin`, `auth`, `device`, `e2ee`, `media`, `message`, `notification`, `presence`, `room`, `server`, `sync`
+Modules: `account`, `admin`, `appservice`, `auth`, `device`, `e2ee`, `media`, `message`, `notification`, `presence`, `room`, `server`, `sync`, `thread`, `voip`
 
 ### Shared Code
 
@@ -64,6 +60,12 @@ Modules: `account`, `admin`, `auth`, `device`, `e2ee`, `media`, `message`, `noti
 - `app/shared/helpers/` — eventQueries, formatEvent, guards, verifyKeys
 - `app/shared/validation.ts` — Zod schemas shared across routes
 - `app/utils/` — tokens (ULID/nanoid generators), s3, storage
+
+### Auth & Middleware
+
+Auth middleware (`app/shared/middleware/auth.ts`) validates Bearer tokens against three sources in order: AppService tokens, OAuth tokens, then long-lived account tokens. It sets `c.var.auth` (typed as `AuthEnv`) containing `{ userId, deviceId, isGuest, trustState }`. Routes use `Hono<AuthEnv>` as the generic type.
+
+Error responses use Matrix error codes via `matrixError(c, 'M_FORBIDDEN', 'message')` from `app/shared/errors.ts`. Helper shortcuts: `matrixNotFound()`, `matrixForbidden()`, `matrixUnknown()`.
 
 ### Event Storage (Dual-Table)
 
@@ -79,6 +81,8 @@ Events use `streamOrder` (auto-increment from events table) for ordering. To-dev
 - `notifier.ts` — EventEmitter-based in-process notifications (no cross-process pub/sub)
 - `service.ts` — builds delta response from since-token
 - Long-poll with 28-second default timeout
+- Sliding sync variant: `slidingRoutes.ts` (MSC3575)
+- `Bun.serve` uses `idleTimeout: 60` to exceed the sync long-poll timeout
 
 ### Auth Flow (`app/oauth/`)
 
@@ -97,6 +101,7 @@ Separate Vite + React 19 + TanStack Router/Query + Tailwind v4 SPA. Dev server o
 - `tests/` — BDD tests using Bun's test runner, require running server + `examples:setup`
 - `examples/` — 10 integration scripts demonstrating each API area, run sequentially with `examples:test`
 - `examples/client.ts` — lightweight Matrix client wrapper used by tests and examples
+- Tests load tokens from `examples/.tokens.json` via `loadTokens()` — run `examples:setup` first
 
 ## E2EE Critical Notes
 
@@ -113,3 +118,5 @@ Key env vars (see `app/config.ts` and `.env.example` for full list):
 - `DB_PATH` — SQLite file (default: `data/gim.db`)
 - `IM_CACHE_DRIVER` — `memory` (default) or `redis`
 - `S3_*` — optional object storage; falls back to local disk
+- `IM_TURN_URIS`, `IM_TURN_SHARED_SECRET` — VoIP/TURN config
+- `IM_AS_REGISTRATION_DIR` — AppService registration YAML directory
