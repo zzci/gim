@@ -1,10 +1,11 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { roomAliases, rooms } from '@/db/schema'
+import { currentRoomState, eventsState, roomAliases, rooms } from '@/db/schema'
 import { queryAppServiceRoomAlias } from '@/modules/appservice/service'
+import { createEvent } from '@/modules/message/service'
 import { getActionPowerLevel, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError, matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
@@ -88,5 +89,47 @@ roomAliasRoute.delete('/:roomAlias', authMiddleware, async (c) => {
   }
 
   db.delete(roomAliases).where(eq(roomAliases.alias, roomAlias)).run()
+
+  // Clean up m.room.canonical_alias if the deleted alias was published
+  const canonicalRow = db.select({ eventId: currentRoomState.eventId })
+    .from(currentRoomState)
+    .where(and(
+      eq(currentRoomState.roomId, alias.roomId),
+      eq(currentRoomState.type, 'm.room.canonical_alias'),
+      eq(currentRoomState.stateKey, ''),
+    ))
+    .get()
+
+  if (canonicalRow) {
+    const event = db.select({ content: eventsState.content }).from(eventsState).where(eq(eventsState.id, canonicalRow.eventId)).get()
+    const content = (event?.content ?? {}) as { alias?: string, alt_aliases?: string[] }
+
+    const wasCanonical = content.alias === roomAlias
+    const altAliases = (content.alt_aliases ?? []).filter((a: string) => a !== roomAlias)
+    const hadAlt = altAliases.length !== (content.alt_aliases ?? []).length
+
+    if (wasCanonical || hadAlt) {
+      const newContent: { alias?: string, alt_aliases?: string[] } = {}
+      if (wasCanonical) {
+        // Promote first alt_alias to canonical, or leave unset
+        if (altAliases.length > 0)
+          newContent.alias = altAliases.shift()
+      }
+      else {
+        newContent.alias = content.alias
+      }
+      if (altAliases.length > 0)
+        newContent.alt_aliases = altAliases
+
+      createEvent({
+        roomId: alias.roomId,
+        sender: auth.userId,
+        type: 'm.room.canonical_alias',
+        stateKey: '',
+        content: newContent,
+      })
+    }
+  }
+
   return c.json({})
 })
