@@ -34,6 +34,7 @@ export const accountData = sqliteTable('account_data', {
   streamId: text('stream_id').notNull().$defaultFn(generateUlid),
 }, table => [
   primaryKey({ columns: [table.userId, table.type, table.roomId] }),
+  index('account_data_user_room_idx').on(table.userId, table.roomId),
 ])
 
 export const accountDataCrossSigning = sqliteTable('account_data_cross_signing', {
@@ -214,6 +215,7 @@ export const e2eeDeviceListChanges = sqliteTable('e2ee_device_list_changes', {
   ulid: text('ulid').notNull(),
 }, table => [
   index('e2ee_device_list_changes_ulid_idx').on(table.ulid),
+  index('e2ee_device_list_changes_user_idx').on(table.userId),
 ])
 
 export const e2eeDehydratedDevices = sqliteTable('e2ee_dehydrated_devices', {

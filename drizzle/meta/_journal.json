@@ -8,6 +8,13 @@
       "when": 1771385981903,
       "tag": "0000_previous_mesmero",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1771451616314,
+      "tag": "0001_loving_hydra",
+      "breakpoints": true
     }
   ]
 }

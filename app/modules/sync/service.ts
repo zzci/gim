@@ -10,7 +10,6 @@ import {
   e2eeToDeviceMessages,
   eventsState,
   roomMembers,
-  typingNotifications,
 } from '@/db/schema'
 import { getMaxEventId } from '@/modules/message/service'
 import { getPresenceForRoommates } from '@/modules/presence/service'
@@ -106,11 +105,8 @@ function buildJoinedRoomData(
     }
   }
 
-  // Get room account data
-  const roomAccountData = db.select().from(accountData).where(and(
-    eq(accountData.userId, userId),
-    eq(accountData.roomId, roomId),
-  )).all()
+  // Get room account data (pre-batched)
+  const roomAccountDataEntries = batchData.roomAccountData.get(roomId) ?? []
 
   // Use pre-batched member counts
   const counts = batchData.memberCounts.get(roomId) ?? { joined: 0, invited: 0 }
@@ -121,22 +117,13 @@ function buildJoinedRoomData(
   // Ephemeral events: typing + receipts
   const ephemeralEvents: any[] = []
 
-  // Typing notifications (clean expired)
-  const now = Date.now()
-  db.delete(typingNotifications)
-    .where(lte(typingNotifications.expiresAt, now))
-    .run()
-
-  const typers = db.select({ userId: typingNotifications.userId })
-    .from(typingNotifications)
-    .where(eq(typingNotifications.roomId, roomId))
-    .all()
-
-  if (typers.length > 0) {
+  // Typing notifications (pre-batched, expired entries already cleaned)
+  const typerIds = batchData.typing.get(roomId)
+  if (typerIds && typerIds.length > 0) {
     ephemeralEvents.push({
       type: 'm.typing',
       content: {
-        user_ids: typers.map(t => t.userId),
+        user_ids: typerIds,
       },
     })
   }
@@ -172,7 +159,7 @@ function buildJoinedRoomData(
       events: currentState.map(formatEvent),
     },
     account_data: {
-      events: roomAccountData.map(d => ({
+      events: roomAccountDataEntries.map(d => ({
         type: d.type,
         content: d.content,
       })),
@@ -196,6 +183,8 @@ interface BatchSyncData {
   heroes: Map<string, string[]>
   receipts: Map<string, Array<{ userId: string, eventId: string, receiptType: string, ts: number }>>
   unreadCounts: Map<string, number>
+  typing: Map<string, string[]>
+  roomAccountData: Map<string, Array<{ type: string, content: Record<string, unknown> }>>
 }
 
 function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: string | null): BatchSyncData {
@@ -203,9 +192,11 @@ function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: strin
   const heroes = new Map<string, string[]>()
   const receipts = new Map<string, Array<{ userId: string, eventId: string, receiptType: string, ts: number }>>()
   const unreadCounts = new Map<string, number>()
+  const typing = new Map<string, string[]>()
+  const roomAccountData = new Map<string, Array<{ type: string, content: Record<string, unknown> }>>()
 
   if (roomIds.length === 0)
-    return { memberCounts, heroes, receipts, unreadCounts }
+    return { memberCounts, heroes, receipts, unreadCounts, typing, roomAccountData }
 
   // Batch member counts using SQL COUNT with GROUP BY
   const countRows = sqlite.prepare(`
@@ -281,7 +272,39 @@ function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: strin
     }
   }
 
-  return { memberCounts, heroes, receipts, unreadCounts }
+  // Batch typing notifications (expired entries already cleaned before this call)
+  const typingRows = sqlite.prepare(`
+    SELECT room_id, user_id
+    FROM typing_notifications
+    WHERE room_id IN (${roomIds.map(() => '?').join(',')})
+  `).all(...roomIds) as Array<{ room_id: string, user_id: string }>
+
+  for (const row of typingRows) {
+    const existing = typing.get(row.room_id)
+    if (existing)
+      existing.push(row.user_id)
+    else
+      typing.set(row.room_id, [row.user_id])
+  }
+
+  // Batch room account data
+  const accountDataRows = sqlite.prepare(`
+    SELECT user_id, type, room_id, content
+    FROM account_data
+    WHERE user_id = ? AND room_id IN (${roomIds.map(() => '?').join(',')})
+  `).all(userId, ...roomIds) as Array<{ user_id: string, type: string, room_id: string, content: string }>
+
+  for (const row of accountDataRows) {
+    const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content
+    const entry = { type: row.type, content }
+    const existing = roomAccountData.get(row.room_id)
+    if (existing)
+      existing.push(entry)
+    else
+      roomAccountData.set(row.room_id, [entry])
+  }
+
+  return { memberCounts, heroes, receipts, unreadCounts, typing, roomAccountData }
 }
 
 export function buildSyncResponse(opts: SyncOptions) {
@@ -301,6 +324,9 @@ export function buildSyncResponse(opts: SyncOptions) {
   const joinRooms: Record<string, JoinedRoomData> = {}
   const inviteRooms: Record<string, any> = {}
   const leaveRooms: Record<string, any> = {}
+
+  // Clean expired typing notifications once (not per-room)
+  sqlite.prepare('DELETE FROM typing_notifications WHERE expires_at <= ?').run(Date.now())
 
   // Pre-fetch batch data for all joined rooms
   const joinedRoomIds = memberRooms.filter(mr => mr.membership === 'join').map(mr => mr.roomId)
