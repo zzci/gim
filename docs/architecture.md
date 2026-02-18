@@ -242,6 +242,51 @@ GIM 是一个基于 Bun + Hono + SQLite 的 Matrix homeserver，目标是提供�
 | Application Service | 50-60% |
 | Federation | 0% |
 
+## 9. Device Trust 隔离（V1，2026-02-18）
+
+目标：
+- 新设备在通过验证前，不接收普通消息，不同步联系人资料。
+- 仅保留完成验证所需的 to-device 消息通道。
+
+实现（基于现有 `devices` 表）：
+- 新增字段：`devices.trust_state`（`trusted | unverified | blocked`，默认 `trusted`）
+- 登录策略：
+  - 账号首个设备：`trusted`
+  - 非首设备：`unverified`
+- 鉴权上下文新增 `trustState`，由 `authMiddleware` 统一注入。
+
+隔离策略：
+- `/_matrix/client/v3/sync`：
+  - `unverified` 设备返回空 `rooms`、空 `presence`、空全局 `account_data`
+  - `to_device` 仅放行验证事件
+- `/_matrix/client/unstable/org.matrix.simplified_msc3575/sync`：
+  - `unverified` 设备不返回 room list / room payload
+  - `extensions.account_data` 返回空
+  - `extensions.to_device` 同样只放行验证事件
+- `/keys/query`：
+  - `unverified` 设备禁止查询其他用户设备（仅允许自查）
+- `/sendToDevice`：
+  - `unverified` 设备仅允许发送 `m.key.verification.*`
+  - 对 `unverified` 目标设备，仅投递 `m.key.verification.*`
+
+验证消息白名单：
+- `m.key.verification.request`
+- `m.key.verification.ready`
+- `m.key.verification.start`
+- `m.key.verification.accept`
+- `m.key.verification.key`
+- `m.key.verification.mac`
+- `m.key.verification.done`
+- `m.key.verification.cancel`
+
+解封（V1）：
+- 当 `trusted` 设备向同账号其他设备发送 `m.key.verification.done` 后，
+  目标设备从 `unverified` 切换为 `trusted`。
+
+迁移与测试：
+- 迁移：`drizzle/0003_device_trust_state.sql`
+- 新增测试：`tests/device-trust.test.ts`
+
 ## 7. 已知限制
 
 - 无 federation 实现。
