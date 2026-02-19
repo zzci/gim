@@ -3,7 +3,6 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { accountDataCrossSigning, accountTokens, devices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
-import { createEvent } from '@/modules/message/service'
 import { notifyUser } from '@/modules/sync/notifier'
 import { verifyDeviceKeySignature } from '@/shared/helpers/verifyKeys'
 import { authMiddleware } from '@/shared/middleware/auth'
@@ -229,26 +228,6 @@ keysUploadRoute.post('/', async (c) => {
           }
         }
       })
-
-      const sharedRooms = db.select({ roomId: roomMembers.roomId })
-        .from(roomMembers)
-        .where(and(
-          eq(roomMembers.userId, auth.userId),
-          eq(roomMembers.membership, 'join'),
-        ))
-        .all()
-
-      for (const room of sharedRooms) {
-        createEvent({
-          roomId: room.roomId,
-          sender: auth.userId,
-          type: 'm.room.message',
-          content: {
-            msgtype: 'm.notice',
-            body: `${auth.userId} 的加密设备已更换，新的加密会话已建立`,
-          },
-        })
-      }
     }
   }
 
