@@ -19,16 +19,6 @@ import { isAccountDataAllowedForUnverified, isVerificationToDeviceType } from '@
 
 const DEFAULT_TIMELINE_LIMIT = 10
 
-const CROCKFORD_BASE32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
-
-/** Decode the millisecond timestamp encoded in the first 10 chars of a ULID */
-function decodeUlidTimestamp(id: string): number {
-  let ts = 0
-  for (let i = 0; i < 10; i++)
-    ts = ts * 32 + CROCKFORD_BASE32.indexOf(id.charAt(i).toUpperCase())
-  return ts
-}
-
 interface SyncOptions {
   userId: string
   deviceId: string
@@ -320,17 +310,19 @@ function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: strin
 export function buildSyncResponse(opts: SyncOptions) {
   const sinceId = opts.since || null
 
-  // Detect trust transition: device is now trusted but the since token predates
-  // verification. Rooms must be treated as initial sync because the device never
-  // received room data while it was unverified.
-  let roomSinceId = sinceId
+  // Separate sync positions for untrusted vs trusted state.
+  // lastSyncBatch is only persisted for trusted syncs, so it stays null while the
+  // device is unverified. When the device becomes trusted and lastSyncBatch is still
+  // null, we know this is the first trusted sync and must send the full dataset for
+  // rooms and account data that were hidden during the unverified period.
+  let trustedSinceId = sinceId
   if (sinceId !== null && opts.isTrustedDevice) {
-    const device = db.select({ verifiedAt: devices.verifiedAt })
+    const device = db.select({ lastSyncBatch: devices.lastSyncBatch })
       .from(devices)
       .where(and(eq(devices.userId, opts.userId), eq(devices.id, opts.deviceId)))
       .get()
-    if (device?.verifiedAt && decodeUlidTimestamp(sinceId) < device.verifiedAt.getTime()) {
-      roomSinceId = null
+    if (!device?.lastSyncBatch) {
+      trustedSinceId = null
     }
   }
 
@@ -354,20 +346,20 @@ export function buildSyncResponse(opts: SyncOptions) {
 
   // Pre-fetch batch data for all joined rooms
   const joinedRoomIds = memberRooms.filter(mr => mr.membership === 'join').map(mr => mr.roomId)
-  const batchData = prefetchBatchSyncData(joinedRoomIds, opts.userId, roomSinceId)
+  const batchData = prefetchBatchSyncData(joinedRoomIds, opts.userId, trustedSinceId)
 
   for (const mr of memberRooms) {
     if (mr.membership === 'join') {
-      const roomData = buildJoinedRoomData(mr.roomId, opts.userId, roomSinceId, batchData)
+      const roomData = buildJoinedRoomData(mr.roomId, opts.userId, trustedSinceId, batchData)
       if (roomData) {
         joinRooms[mr.roomId] = roomData
       }
     }
     else if (mr.membership === 'invite') {
       // For incremental sync, only include if the invite is new
-      if (roomSinceId !== null) {
+      if (trustedSinceId !== null) {
         const inviteEvent = queryEventById(mr.eventId)
-        if (!inviteEvent || inviteEvent.id <= roomSinceId) {
+        if (!inviteEvent || inviteEvent.id <= trustedSinceId) {
           continue
         }
       }
@@ -388,8 +380,8 @@ export function buildSyncResponse(opts: SyncOptions) {
       }
     }
     // For 'leave' rooms, only include in incremental sync if there are new events
-    else if (mr.membership === 'leave' && roomSinceId !== null) {
-      const newEvents = queryRoomEvents(mr.roomId, { after: roomSinceId, order: 'asc', limit: 100 })
+    else if (mr.membership === 'leave' && trustedSinceId !== null) {
+      const newEvents = queryRoomEvents(mr.roomId, { after: trustedSinceId, order: 'asc', limit: 100 })
       if (newEvents.length > 0) {
         leaveRooms[mr.roomId] = {
           timeline: { events: newEvents.map(formatEvent) },
@@ -399,11 +391,11 @@ export function buildSyncResponse(opts: SyncOptions) {
     }
   }
 
-  // Global account data
+  // Global account data — use trustedSinceId so trust transition gets full dataset
   const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
   let globalAccountData: any[] = []
   let maxAccountDataStreamId = ''
-  if (sinceId === null) {
+  if (trustedSinceId === null) {
     const allData = db.select().from(accountData).where(and(
       eq(accountData.userId, opts.userId),
       eq(accountData.roomId, ''),
@@ -416,7 +408,7 @@ export function buildSyncResponse(opts: SyncOptions) {
     const rows = db.select().from(accountData).where(and(
       eq(accountData.userId, opts.userId),
       eq(accountData.roomId, ''),
-      gt(accountData.streamId, sinceId),
+      gt(accountData.streamId, trustedSinceId),
     )).all()
     const filtered = rows.filter(d => opts.isTrustedDevice || isAccountDataAllowedForUnverified(d.type))
     globalAccountData = filtered.map(d => ({ type: d.type, content: d.content }))
@@ -424,8 +416,8 @@ export function buildSyncResponse(opts: SyncOptions) {
       maxAccountDataStreamId = filtered.reduce((max, d) => d.streamId > max ? d.streamId : max, '')
     }
   }
-  // Always include backup_disabled on initial sync so clients know recovery is not needed
-  if (sinceId === null && !globalAccountData.some((d: any) => d.type === BACKUP_DISABLED_TYPE)) {
+  // Always include backup_disabled on initial/trust-transition sync
+  if (trustedSinceId === null && !globalAccountData.some((d: any) => d.type === BACKUP_DISABLED_TYPE)) {
     globalAccountData.push({ type: BACKUP_DISABLED_TYPE, content: { disabled: true } })
   }
 
@@ -520,11 +512,15 @@ export function buildSyncResponse(opts: SyncOptions) {
     nextBatch = maxAccountDataStreamId
   nextBatch = nextBatch || '0'
 
-  // Persist next_batch to device for recovery on reconnect
-  db.update(devices)
-    .set({ lastSyncBatch: nextBatch })
-    .where(and(eq(devices.userId, opts.userId), eq(devices.id, opts.deviceId)))
-    .run()
+  // Only persist lastSyncBatch for trusted devices. Untrusted syncs return no
+  // rooms/account data, so their position is meaningless for recovery. Keeping it
+  // null lets us detect the first trusted sync (trust transition) cleanly.
+  if (opts.isTrustedDevice) {
+    db.update(devices)
+      .set({ lastSyncBatch: nextBatch })
+      .where(and(eq(devices.userId, opts.userId), eq(devices.id, opts.deviceId)))
+      .run()
+  }
 
   return {
     next_batch: nextBatch,
