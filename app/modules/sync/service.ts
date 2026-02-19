@@ -15,7 +15,7 @@ import { getMaxEventId } from '@/modules/message/service'
 import { getPresenceForRoommates } from '@/modules/presence/service'
 import { queryEventById, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
-import { isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
+import { isAccountDataAllowedForUnverified, isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
 
 const DEFAULT_TIMELINE_LIMIT = 10
 
@@ -379,23 +379,25 @@ export function buildSyncResponse(opts: SyncOptions) {
   const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
   let globalAccountData: any[] = []
   let maxAccountDataStreamId = ''
-  if (opts.isTrustedDevice) {
-    if (sinceId === null) {
-      globalAccountData = db.select().from(accountData).where(and(
-        eq(accountData.userId, opts.userId),
-        eq(accountData.roomId, ''),
-      )).all().map(d => ({ type: d.type, content: d.content }))
-    }
-    else {
-      const rows = db.select().from(accountData).where(and(
-        eq(accountData.userId, opts.userId),
-        eq(accountData.roomId, ''),
-        gt(accountData.streamId, sinceId),
-      )).all()
-      globalAccountData = rows.map(d => ({ type: d.type, content: d.content }))
-      if (rows.length > 0) {
-        maxAccountDataStreamId = rows.reduce((max, d) => d.streamId > max ? d.streamId : max, '')
-      }
+  if (sinceId === null) {
+    const allData = db.select().from(accountData).where(and(
+      eq(accountData.userId, opts.userId),
+      eq(accountData.roomId, ''),
+    )).all()
+    globalAccountData = allData
+      .filter(d => opts.isTrustedDevice || isAccountDataAllowedForUnverified(d.type))
+      .map(d => ({ type: d.type, content: d.content }))
+  }
+  else {
+    const rows = db.select().from(accountData).where(and(
+      eq(accountData.userId, opts.userId),
+      eq(accountData.roomId, ''),
+      gt(accountData.streamId, sinceId),
+    )).all()
+    const filtered = rows.filter(d => opts.isTrustedDevice || isAccountDataAllowedForUnverified(d.type))
+    globalAccountData = filtered.map(d => ({ type: d.type, content: d.content }))
+    if (filtered.length > 0) {
+      maxAccountDataStreamId = filtered.reduce((max, d) => d.streamId > max ? d.streamId : max, '')
     }
   }
   // Always include backup_disabled on initial sync so clients know recovery is not needed
@@ -449,9 +451,11 @@ export function buildSyncResponse(opts: SyncOptions) {
       content: m.content,
     }))
 
-    // Track the max auto-increment id we're delivering
-    if (toDeviceMsgs.length > 0) {
-      const maxId = toDeviceMsgs[toDeviceMsgs.length - 1]!.id
+    // Track the max auto-increment id we're actually delivering (visible only).
+    // Using the unfiltered list would skip non-verification messages that arrive
+    // during the trust-transition window (between DB promotion and next full sync).
+    if (visibleToDeviceMsgs.length > 0) {
+      const maxId = visibleToDeviceMsgs[visibleToDeviceMsgs.length - 1]!.id
       tx.update(devices)
         .set({ lastToDeviceStreamId: maxId })
         .where(and(eq(devices.userId, opts.userId), eq(devices.id, opts.deviceId)))

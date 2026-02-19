@@ -29,6 +29,18 @@ export function isVerificationToDeviceType(eventType: string): boolean {
   return TO_DEVICE_VERIFICATION_TYPES.has(eventType)
 }
 
+// Account data types safe for unverified devices (cross-signing / verification related)
+const UNVERIFIED_ACCOUNT_DATA_TYPES = new Set([
+  'm.cross_signing.master',
+  'm.cross_signing.self_signing',
+  'm.cross_signing.user_signing',
+  'm.org.matrix.custom.backup_disabled',
+])
+
+export function isAccountDataAllowedForUnverified(eventType: string): boolean {
+  return UNVERIFIED_ACCOUNT_DATA_TYPES.has(eventType)
+}
+
 export async function requireTrustedDevice(c: Context, next: Next) {
   const auth = c.get('auth') as { trustState?: DeviceTrustState }
   if (auth?.trustState !== 'trusted') {

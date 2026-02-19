@@ -10,7 +10,7 @@ import {
 } from '@/db/schema'
 import { getMaxEventId, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
-import { isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
+import { isAccountDataAllowedForUnverified, isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
 
 interface SlidingSyncList {
   ranges: [number, number][]
@@ -341,17 +341,18 @@ function processToDevice(userId: string, deviceId: string, isTrustedDevice: bool
       content: m.content,
     }))
 
-    // Track max delivered id
-    if (msgs.length > 0) {
-      const maxId = msgs[msgs.length - 1]!.id
+    // Track max delivered id — use visible (filtered) list only so that
+    // non-verification messages arriving during trust transition are not skipped.
+    if (visibleMsgs.length > 0) {
+      const maxId = visibleMsgs[visibleMsgs.length - 1]!.id
       tx.update(devices)
         .set({ lastToDeviceStreamId: maxId })
         .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
         .run()
     }
 
-    const nextBatch = msgs.length > 0
-      ? String(msgs[msgs.length - 1]!.id)
+    const nextBatch = visibleMsgs.length > 0
+      ? String(visibleMsgs[visibleMsgs.length - 1]!.id)
       : (since || '0')
 
     return { events, next_batch: nextBatch }
@@ -409,19 +410,18 @@ function processE2ee(userId: string, deviceId: string, isTrustedDevice: boolean,
 
 function processAccountData(userId: string, isTrustedDevice: boolean, since?: string): Record<string, any> {
   const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
-  let globalData: any[] = []
 
-  if (isTrustedDevice) {
-    const conditions = [
-      eq(accountData.userId, userId),
-      eq(accountData.roomId, ''),
-    ]
-    if (since) {
-      conditions.push(gt(accountData.streamId, since))
-    }
-    const rows = db.select().from(accountData).where(and(...conditions)).all()
-    globalData = rows.map(d => ({ type: d.type, content: d.content }))
+  const conditions = [
+    eq(accountData.userId, userId),
+    eq(accountData.roomId, ''),
+  ]
+  if (since) {
+    conditions.push(gt(accountData.streamId, since))
   }
+  const rows = db.select().from(accountData).where(and(...conditions)).all()
+  const globalData = rows
+    .filter(d => isTrustedDevice || isAccountDataAllowedForUnverified(d.type))
+    .map(d => ({ type: d.type, content: d.content }))
 
   // Always include backup_disabled on initial sync so clients know recovery is not needed
   if (!since && !globalData.some((d: any) => d.type === BACKUP_DISABLED_TYPE)) {
