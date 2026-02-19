@@ -79,13 +79,12 @@ sendToDeviceRoute.put('/:eventType/:txnId', async (c) => {
       for (const targetDeviceId of Object.keys(deviceMap)) {
         if (targetDeviceId === '*' || targetDeviceId === auth.deviceId)
           continue
-        const result = db.update(devices)
+        db.update(devices)
           .set({
             trustState: 'trusted',
             trustReason: 'verification_done',
             verifiedAt: new Date(),
             verifiedByDeviceId: auth.deviceId,
-            lastSyncBatch: null,
           })
           .where(and(
             eq(devices.userId, auth.userId),
@@ -94,10 +93,8 @@ sendToDeviceRoute.put('/:eventType/:txnId', async (c) => {
           ))
           .run()
 
-        // Wake newly verified device so it does a fresh initial sync with full history
-        if (result.changes > 0) {
-          notifyUser(auth.userId)
-        }
+        // Wake newly verified device so it re-syncs with trusted access
+        notifyUser(auth.userId)
       }
     }
   }

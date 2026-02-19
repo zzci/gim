@@ -19,6 +19,16 @@ import { isAccountDataAllowedForUnverified, isVerificationToDeviceType } from '@
 
 const DEFAULT_TIMELINE_LIMIT = 10
 
+const CROCKFORD_BASE32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+/** Decode the millisecond timestamp encoded in the first 10 chars of a ULID */
+function decodeUlidTimestamp(id: string): number {
+  let ts = 0
+  for (let i = 0; i < 10; i++)
+    ts = ts * 32 + CROCKFORD_BASE32.indexOf(id.charAt(i).toUpperCase())
+  return ts
+}
+
 interface SyncOptions {
   userId: string
   deviceId: string
@@ -310,6 +320,20 @@ function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: strin
 export function buildSyncResponse(opts: SyncOptions) {
   const sinceId = opts.since || null
 
+  // Detect trust transition: device is now trusted but the since token predates
+  // verification. Rooms must be treated as initial sync because the device never
+  // received room data while it was unverified.
+  let roomSinceId = sinceId
+  if (sinceId !== null && opts.isTrustedDevice) {
+    const device = db.select({ verifiedAt: devices.verifiedAt })
+      .from(devices)
+      .where(and(eq(devices.userId, opts.userId), eq(devices.id, opts.deviceId)))
+      .get()
+    if (device?.verifiedAt && decodeUlidTimestamp(sinceId) < device.verifiedAt.getTime()) {
+      roomSinceId = null
+    }
+  }
+
   const memberRooms = opts.isTrustedDevice
     ? db.select({
         roomId: roomMembers.roomId,
@@ -330,20 +354,20 @@ export function buildSyncResponse(opts: SyncOptions) {
 
   // Pre-fetch batch data for all joined rooms
   const joinedRoomIds = memberRooms.filter(mr => mr.membership === 'join').map(mr => mr.roomId)
-  const batchData = prefetchBatchSyncData(joinedRoomIds, opts.userId, sinceId)
+  const batchData = prefetchBatchSyncData(joinedRoomIds, opts.userId, roomSinceId)
 
   for (const mr of memberRooms) {
     if (mr.membership === 'join') {
-      const roomData = buildJoinedRoomData(mr.roomId, opts.userId, sinceId, batchData)
+      const roomData = buildJoinedRoomData(mr.roomId, opts.userId, roomSinceId, batchData)
       if (roomData) {
         joinRooms[mr.roomId] = roomData
       }
     }
     else if (mr.membership === 'invite') {
       // For incremental sync, only include if the invite is new
-      if (sinceId !== null) {
+      if (roomSinceId !== null) {
         const inviteEvent = queryEventById(mr.eventId)
-        if (!inviteEvent || inviteEvent.id <= sinceId) {
+        if (!inviteEvent || inviteEvent.id <= roomSinceId) {
           continue
         }
       }
@@ -364,8 +388,8 @@ export function buildSyncResponse(opts: SyncOptions) {
       }
     }
     // For 'leave' rooms, only include in incremental sync if there are new events
-    else if (mr.membership === 'leave' && sinceId !== null) {
-      const newEvents = queryRoomEvents(mr.roomId, { after: sinceId, order: 'asc', limit: 100 })
+    else if (mr.membership === 'leave' && roomSinceId !== null) {
+      const newEvents = queryRoomEvents(mr.roomId, { after: roomSinceId, order: 'asc', limit: 100 })
       if (newEvents.length > 0) {
         leaveRooms[mr.roomId] = {
           timeline: { events: newEvents.map(formatEvent) },
