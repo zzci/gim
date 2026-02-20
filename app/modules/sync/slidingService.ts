@@ -274,18 +274,109 @@ function getRoomMemberCounts(roomId: string): { joined: number, invited: number 
   return { joined: row?.joined ?? 0, invited: row?.invited ?? 0 }
 }
 
+interface BatchRoomInfo {
+  names: Map<string, string | undefined>
+  memberCounts: Map<string, { joined: number, invited: number }>
+  notificationCounts: Map<string, number>
+}
+
+function batchFetchRoomInfo(roomIds: string[], userId: string): BatchRoomInfo {
+  const names = new Map<string, string | undefined>()
+  const memberCounts = new Map<string, { joined: number, invited: number }>()
+  const notificationCounts = new Map<string, number>()
+
+  if (roomIds.length === 0)
+    return { names, memberCounts, notificationCounts }
+
+  const placeholders = roomIds.map(() => '?').join(',')
+
+  // Batch room names from current_room_state
+  const nameRows = sqlite.prepare(`
+    SELECT crs.room_id, es.content
+    FROM current_room_state crs
+    JOIN events_state es ON es.id = crs.event_id
+    WHERE crs.room_id IN (${placeholders}) AND crs.type = 'm.room.name' AND crs.state_key = ''
+  `).all(...roomIds) as Array<{ room_id: string, content: string }>
+
+  for (const row of nameRows) {
+    const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content
+    if (content.name)
+      names.set(row.room_id, content.name)
+  }
+
+  // For rooms without a name, compute from heroes
+  const roomsWithoutName = roomIds.filter(id => !names.has(id))
+  if (roomsWithoutName.length > 0) {
+    const ph2 = roomsWithoutName.map(() => '?').join(',')
+    const heroRows = sqlite.prepare(`
+      SELECT room_id, user_id FROM room_members
+      WHERE room_id IN (${ph2}) AND membership = 'join' AND user_id != ?
+    `).all(...roomsWithoutName, userId) as Array<{ room_id: string, user_id: string }>
+
+    const heroMap = new Map<string, string[]>()
+    for (const row of heroRows) {
+      const existing = heroMap.get(row.room_id)
+      if (existing) {
+        if (existing.length < 5)
+          existing.push(row.user_id)
+      }
+      else {
+        heroMap.set(row.room_id, [row.user_id])
+      }
+    }
+    for (const [roomId, heroes] of heroMap) {
+      if (heroes.length > 0)
+        names.set(roomId, heroes.join(', '))
+    }
+  }
+
+  // Batch member counts
+  const countRows = sqlite.prepare(`
+    SELECT room_id,
+      SUM(CASE WHEN membership = 'join' THEN 1 ELSE 0 END) as joined,
+      SUM(CASE WHEN membership = 'invite' THEN 1 ELSE 0 END) as invited
+    FROM room_members
+    WHERE room_id IN (${placeholders})
+    GROUP BY room_id
+  `).all(...roomIds) as Array<{ room_id: string, joined: number, invited: number }>
+
+  for (const row of countRows) {
+    memberCounts.set(row.room_id, { joined: row.joined, invited: row.invited })
+  }
+
+  // Batch notification counts
+  const notifRows = sqlite.prepare(`
+    SELECT et.room_id, COUNT(*) as cnt
+    FROM events_timeline et
+    LEFT JOIN read_receipts rr
+      ON rr.room_id = et.room_id AND rr.user_id = ? AND rr.receipt_type = 'm.read'
+    WHERE et.room_id IN (${placeholders})
+      AND (rr.event_id IS NULL OR et.id > rr.event_id)
+    GROUP BY et.room_id
+  `).all(userId, ...roomIds) as Array<{ room_id: string, cnt: number }>
+
+  for (const row of notifRows) {
+    notificationCounts.set(row.room_id, row.cnt)
+  }
+
+  return { names, memberCounts, notificationCounts }
+}
+
 function buildRoomResponse(
   roomId: string,
   userId: string,
   opts: { required_state?: [string, string][], timeline_limit?: number },
   since?: string,
+  batchInfo?: BatchRoomInfo,
 ): SlidingSyncRoomResponse {
   const timelineLimit = opts.timeline_limit ?? 10
   const timeline = getRoomTimeline(roomId, timelineLimit, since)
   const requiredState = getRoomRequiredState(roomId, opts.required_state)
-  const name = getRoomName(roomId, userId)
-  const notificationCount = getRoomNotificationCount(roomId, userId)
-  const counts = getRoomMemberCounts(roomId)
+
+  // Use batched data if available, fall back to per-room queries
+  const name = batchInfo ? batchInfo.names.get(roomId) : getRoomName(roomId, userId)
+  const notificationCount = batchInfo ? (batchInfo.notificationCounts.get(roomId) ?? 0) : getRoomNotificationCount(roomId, userId)
+  const counts = batchInfo ? (batchInfo.memberCounts.get(roomId) ?? { joined: 0, invited: 0 }) : getRoomMemberCounts(roomId)
 
   return {
     name,
@@ -364,13 +455,16 @@ export function buildSlidingSyncResponse(
     }
   }
 
-  // Build room data for all rooms that need to be included
-  for (const roomId of roomsToInclude) {
-    // For incremental sync, only include rooms with changes
-    if (since && !hasRoomChanges(roomId, since)) {
-      continue
-    }
+  // Filter rooms with changes for incremental sync, then batch-fetch info
+  const roomsWithChanges = since
+    ? [...roomsToInclude].filter(roomId => hasRoomChanges(roomId, since))
+    : [...roomsToInclude]
 
+  // Batch-fetch names, member counts, notification counts for all rooms at once
+  const batchInfo = batchFetchRoomInfo(roomsWithChanges, userId)
+
+  // Build room data for all rooms that need to be included
+  for (const roomId of roomsWithChanges) {
     // Determine required_state and timeline_limit from list or subscription
     let requiredState: [string, string][] | undefined
     let timelineLimit: number | undefined
@@ -398,6 +492,7 @@ export function buildSlidingSyncResponse(
       userId,
       { required_state: requiredState, timeline_limit: timelineLimit },
       since,
+      batchInfo,
     )
   }
 

@@ -68,6 +68,7 @@ export function collectE2eeKeyCounts(
     .where(and(
       eq(e2eeFallbackKeys.userId, userId),
       eq(e2eeFallbackKeys.deviceId, deviceId),
+      eq(e2eeFallbackKeys.used, false),
     ))
     .all()
     .map(r => r.algorithm)

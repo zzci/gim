@@ -1,8 +1,8 @@
 import type { Hono } from 'hono'
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { eventsState, eventsTimeline } from '@/db/schema'
+import { currentRoomState, eventsState, eventsTimeline, roomMembers } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { getPowerLevelsContent, getRoomId } from '@/modules/message/shared'
 import { getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
@@ -85,6 +85,29 @@ export function registerRedactRoute(router: Hono<AuthEnv>) {
         })
         .where(eq(eventsState.id, targetEventId))
         .run()
+
+      // If this is the current state event for this type+stateKey, update materialized views
+      const isCurrent = db.select({ eventId: currentRoomState.eventId })
+        .from(currentRoomState)
+        .where(and(
+          eq(currentRoomState.roomId, roomId),
+          eq(currentRoomState.type, targetEvent.type as string),
+          eq(currentRoomState.stateKey, targetEvent.stateKey as string),
+          eq(currentRoomState.eventId, targetEventId),
+        ))
+        .get()
+
+      if (isCurrent && targetEvent.type === 'm.room.member') {
+        // Redacted m.room.member preserves 'membership' key, update roomMembers
+        const membership = (redactedContent.membership as string) || 'leave'
+        db.update(roomMembers)
+          .set({ membership, updatedAt: new Date() })
+          .where(and(
+            eq(roomMembers.roomId, roomId),
+            eq(roomMembers.userId, targetEvent.stateKey as string),
+          ))
+          .run()
+      }
     }
     else {
       db.update(eventsTimeline)

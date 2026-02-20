@@ -305,11 +305,13 @@ keysUploadRoute.post('/', async (c) => {
         algorithm,
         keyId,
         keyJson: typeof keyData === 'string' ? { key: keyData } : (keyData as Record<string, unknown>),
+        used: false,
       }).onConflictDoUpdate({
         target: [e2eeFallbackKeys.userId, e2eeFallbackKeys.deviceId, e2eeFallbackKeys.algorithm],
         set: {
           keyId,
           keyJson: typeof keyData === 'string' ? { key: keyData } : (keyData as Record<string, unknown>),
+          used: false,
         },
       })
     }

@@ -39,31 +39,48 @@ function cleanupExpiredTokens() {
 }
 
 async function processMediaDeletions() {
-  const pending = db.select()
-    .from(mediaDeletions)
-    .where(isNull(mediaDeletions.completedAt))
-    .limit(100)
-    .all()
+  const BATCH_SIZE = 100
+  let totalProcessed = 0
 
-  for (const item of pending) {
-    try {
-      if (item.storagePath.startsWith('s3:')) {
-        await deleteFromS3(item.storagePath.slice(3))
-      }
-      else {
-        await unlink(item.storagePath)
-      }
+  // Process all pending deletions in batches
+  let hasMore = true
+  while (hasMore) {
+    const pending = db.select()
+      .from(mediaDeletions)
+      .where(isNull(mediaDeletions.completedAt))
+      .limit(BATCH_SIZE)
+      .all()
+
+    if (pending.length === 0) {
+      hasMore = false
+      continue
     }
-    catch { /* best effort — file may already be gone */ }
 
-    db.update(mediaDeletions)
-      .set({ completedAt: new Date() })
-      .where(eq(mediaDeletions.id, item.id))
-      .run()
+    for (const item of pending) {
+      try {
+        if (item.storagePath.startsWith('s3:')) {
+          await deleteFromS3(item.storagePath.slice(3))
+        }
+        else {
+          await unlink(item.storagePath)
+        }
+      }
+      catch { /* best effort — file may already be gone */ }
+
+      db.update(mediaDeletions)
+        .set({ completedAt: new Date() })
+        .where(eq(mediaDeletions.id, item.id))
+        .run()
+    }
+
+    totalProcessed += pending.length
+
+    if (pending.length < BATCH_SIZE)
+      hasMore = false
   }
 
-  if (pending.length > 0) {
-    logger.info(`cron_media_deletions_processed`, { count: pending.length })
+  if (totalProcessed > 0) {
+    logger.info('cron_media_deletions_processed', { count: totalProcessed })
   }
 }
 

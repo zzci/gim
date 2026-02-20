@@ -43,6 +43,17 @@ keysClaimRoute.post('/', async (c) => {
         )).limit(1).get()
 
         if (fbk) {
+          if (!fbk.used) {
+            db.update(e2eeFallbackKeys)
+              .set({ used: true })
+              .where(and(
+                eq(e2eeFallbackKeys.userId, userId),
+                eq(e2eeFallbackKeys.deviceId, deviceId),
+                eq(e2eeFallbackKeys.algorithm, algorithm),
+              ))
+              .run()
+          }
+
           result[userId]![deviceId] = {
             [`${fbk.algorithm}:${fbk.keyId}`]: fbk.keyJson,
           }

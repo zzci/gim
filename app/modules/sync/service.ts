@@ -36,7 +36,7 @@ export function buildSyncResponse(opts: SyncOptions) {
 
   // Pre-fetch batch data for all joined rooms
   const joinedRoomIds = memberRooms.filter(mr => mr.membership === 'join').map(mr => mr.roomId)
-  const batchData = prefetchBatchSyncData(joinedRoomIds, opts.userId, trustedSinceId)
+  const batchData = prefetchBatchSyncData(joinedRoomIds, opts.userId, trustedSinceId, trustedSinceId)
 
   // Build room data
   const joinRooms: Record<string, any> = {}

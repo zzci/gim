@@ -68,7 +68,7 @@ export function getUserRoomMemberships(userId: string, isTrusted: boolean): Memb
     .all()
 }
 
-export function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: string | null): BatchSyncData {
+export function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId: string | null, sinceStreamId: string | null = null): BatchSyncData {
   const memberCounts = new Map<string, { joined: number, invited: number }>()
   const heroes = new Map<string, string[]>()
   const receipts = new Map<string, Array<{ userId: string, eventId: string, receiptType: string, ts: number }>>()
@@ -166,12 +166,22 @@ export function prefetchBatchSyncData(roomIds: string[], userId: string, sinceId
       typing.set(row.room_id, [row.user_id])
   }
 
-  // Batch room account data
-  const accountDataRows = sqlite.prepare(`
-    SELECT user_id, type, room_id, content
-    FROM account_data
-    WHERE user_id = ? AND room_id IN (${roomIds.map(() => '?').join(',')})
-  `).all(userId, ...roomIds) as Array<{ user_id: string, type: string, room_id: string, content: string }>
+  // Batch room account data (filter by stream_id for incremental sync)
+  const accountDataQuery = sinceStreamId
+    ? sqlite.prepare(`
+        SELECT user_id, type, room_id, content
+        FROM account_data
+        WHERE user_id = ? AND room_id IN (${roomIds.map(() => '?').join(',')}) AND stream_id > ?
+      `)
+    : sqlite.prepare(`
+        SELECT user_id, type, room_id, content
+        FROM account_data
+        WHERE user_id = ? AND room_id IN (${roomIds.map(() => '?').join(',')})
+      `)
+  const accountDataRows = (sinceStreamId
+    ? accountDataQuery.all(userId, ...roomIds, sinceStreamId)
+    : accountDataQuery.all(userId, ...roomIds)
+  ) as Array<{ user_id: string, type: string, room_id: string, content: string }>
 
   for (const row of accountDataRows) {
     const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content

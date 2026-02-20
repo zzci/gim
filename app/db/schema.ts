@@ -197,6 +197,7 @@ export const e2eeFallbackKeys = sqliteTable('e2ee_fallback_keys', {
   algorithm: text('algorithm').notNull(),
   keyId: text('key_id').notNull(),
   keyJson: text('key_json', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+  used: integer('used', { mode: 'boolean' }).notNull().default(false),
 }, table => [
   primaryKey({ columns: [table.userId, table.deviceId, table.algorithm] }),
 ])
