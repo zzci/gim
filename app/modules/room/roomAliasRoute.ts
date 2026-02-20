@@ -1,12 +1,13 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { currentRoomState, eventsState, roomAliases, rooms } from '@/db/schema'
+import { roomAliases, rooms } from '@/db/schema'
+import { getMembership } from '@/models/roomMembership'
+import { getActionPowerLevel, getStateContent, getUserPowerLevel } from '@/models/roomState'
 import { queryAppServiceRoomAlias } from '@/modules/appservice/service'
 import { createEvent } from '@/modules/message/service'
-import { getActionPowerLevel, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError, matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 
@@ -33,7 +34,7 @@ roomAliasRoute.put('/:roomAlias', authMiddleware, async (c) => {
     return matrixNotFound(c, 'Room not found')
   }
 
-  const membership = getRoomMembership(roomId, auth.userId)
+  const membership = getMembership(roomId, auth.userId)
   if (membership !== 'join') {
     return matrixForbidden(c, 'Not a member of this room')
   }
@@ -83,7 +84,7 @@ roomAliasRoute.delete('/:roomAlias', authMiddleware, async (c) => {
     return matrixNotFound(c, 'Room alias not found')
   }
 
-  const membership = getRoomMembership(alias.roomId, auth.userId)
+  const membership = getMembership(alias.roomId, auth.userId)
   if (membership !== 'join') {
     return matrixForbidden(c, 'Not a member of this room')
   }
@@ -91,18 +92,10 @@ roomAliasRoute.delete('/:roomAlias', authMiddleware, async (c) => {
   db.delete(roomAliases).where(eq(roomAliases.alias, roomAlias)).run()
 
   // Clean up m.room.canonical_alias if the deleted alias was published
-  const canonicalRow = db.select({ eventId: currentRoomState.eventId })
-    .from(currentRoomState)
-    .where(and(
-      eq(currentRoomState.roomId, alias.roomId),
-      eq(currentRoomState.type, 'm.room.canonical_alias'),
-      eq(currentRoomState.stateKey, ''),
-    ))
-    .get()
+  const canonicalContent = getStateContent(alias.roomId, 'm.room.canonical_alias', '')
 
-  if (canonicalRow) {
-    const event = db.select({ content: eventsState.content }).from(eventsState).where(eq(eventsState.id, canonicalRow.eventId)).get()
-    const content = (event?.content ?? {}) as { alias?: string, alt_aliases?: string[] }
+  if (canonicalContent) {
+    const content = canonicalContent as { alias?: string, alt_aliases?: string[] }
 
     const wasCanonical = content.alias === roomAlias
     const altAliases = (content.alt_aliases ?? []).filter((a: string) => a !== roomAlias)

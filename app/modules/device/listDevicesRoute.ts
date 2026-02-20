@@ -1,8 +1,6 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { desc, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { db } from '@/db'
-import { devices } from '@/db/schema'
+import { listDevices } from '@/models/device'
 import { authMiddleware } from '@/shared/middleware/auth'
 
 export const deviceListRoute = new Hono<AuthEnv>()
@@ -11,11 +9,7 @@ deviceListRoute.use('/*', authMiddleware)
 deviceListRoute.get('/', async (c) => {
   const auth = c.get('auth')
 
-  const rows = db.select()
-    .from(devices)
-    .where(eq(devices.userId, auth.userId))
-    .orderBy(desc(devices.lastSeenAt), desc(devices.createdAt))
-    .all()
+  const rows = listDevices(auth.userId)
 
   return c.json({
     devices: rows.map(d => ({

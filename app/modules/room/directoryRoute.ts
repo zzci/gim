@@ -1,9 +1,10 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, count, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { currentRoomState, eventsState, roomAliases, roomMembers, rooms } from '@/db/schema'
-import { getActionPowerLevel, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
+import { roomAliases, rooms } from '@/db/schema'
+import { getJoinedMemberCount, getMembership } from '@/models/roomMembership'
+import { getActionPowerLevel, getStateContent, getUserPowerLevel } from '@/models/roomState'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 
@@ -31,7 +32,7 @@ directoryListRoute.put('/:roomId', authMiddleware, async (c) => {
   if (!room)
     return matrixNotFound(c, 'Room not found')
 
-  const membership = getRoomMembership(roomId, auth.userId)
+  const membership = getMembership(roomId, auth.userId)
   if (membership !== 'join')
     return matrixForbidden(c, 'Not a member of this room')
 
@@ -54,38 +55,9 @@ function getPublicRooms(limit: number, since: number, filter?: string) {
 
   const results = []
   for (const room of allPublic) {
-    // Get room name
-    const nameRow = db.select({ eventId: currentRoomState.eventId })
-      .from(currentRoomState)
-      .where(and(eq(currentRoomState.roomId, room.id), eq(currentRoomState.type, 'm.room.name'), eq(currentRoomState.stateKey, '')))
-      .get()
-    let name: string | undefined
-    if (nameRow) {
-      const event = db.select({ content: eventsState.content }).from(eventsState).where(eq(eventsState.id, nameRow.eventId)).get()
-      name = (event?.content as any)?.name
-    }
-
-    // Get room topic
-    const topicRow = db.select({ eventId: currentRoomState.eventId })
-      .from(currentRoomState)
-      .where(and(eq(currentRoomState.roomId, room.id), eq(currentRoomState.type, 'm.room.topic'), eq(currentRoomState.stateKey, '')))
-      .get()
-    let topic: string | undefined
-    if (topicRow) {
-      const event = db.select({ content: eventsState.content }).from(eventsState).where(eq(eventsState.id, topicRow.eventId)).get()
-      topic = (event?.content as any)?.topic
-    }
-
-    // Get room avatar
-    const avatarRow = db.select({ eventId: currentRoomState.eventId })
-      .from(currentRoomState)
-      .where(and(eq(currentRoomState.roomId, room.id), eq(currentRoomState.type, 'm.room.avatar'), eq(currentRoomState.stateKey, '')))
-      .get()
-    let avatarUrl: string | undefined
-    if (avatarRow) {
-      const event = db.select({ content: eventsState.content }).from(eventsState).where(eq(eventsState.id, avatarRow.eventId)).get()
-      avatarUrl = (event?.content as any)?.url
-    }
+    const name = (getStateContent(room.id, 'm.room.name', '') as Record<string, unknown> | null)?.name as string | undefined
+    const topic = (getStateContent(room.id, 'm.room.topic', '') as Record<string, unknown> | null)?.topic as string | undefined
+    const avatarUrl = (getStateContent(room.id, 'm.room.avatar', '') as Record<string, unknown> | null)?.url as string | undefined
 
     // Apply text filter
     if (filter) {
@@ -98,18 +70,11 @@ function getPublicRooms(limit: number, since: number, filter?: string) {
     const alias = db.select({ alias: roomAliases.alias }).from(roomAliases).where(eq(roomAliases.roomId, room.id)).get()
 
     // Get member count
-    const memberCount = db.select({ cnt: count() }).from(roomMembers).where(and(eq(roomMembers.roomId, room.id), eq(roomMembers.membership, 'join'))).get()
+    const memberCount = getJoinedMemberCount(room.id)
 
     // Get join rule
-    const joinRuleRow = db.select({ eventId: currentRoomState.eventId })
-      .from(currentRoomState)
-      .where(and(eq(currentRoomState.roomId, room.id), eq(currentRoomState.type, 'm.room.join_rules'), eq(currentRoomState.stateKey, '')))
-      .get()
-    let joinRule = 'public'
-    if (joinRuleRow) {
-      const event = db.select({ content: eventsState.content }).from(eventsState).where(eq(eventsState.id, joinRuleRow.eventId)).get()
-      joinRule = (event?.content as any)?.join_rule ?? 'public'
-    }
+    const joinRuleContent = getStateContent(room.id, 'm.room.join_rules', '')
+    const joinRule = (joinRuleContent?.join_rule as string) ?? 'public'
 
     results.push({
       room_id: room.id,
@@ -117,7 +82,7 @@ function getPublicRooms(limit: number, since: number, filter?: string) {
       topic,
       avatar_url: avatarUrl,
       canonical_alias: alias?.alias,
-      num_joined_members: memberCount?.cnt ?? 0,
+      num_joined_members: memberCount,
       world_readable: false,
       guest_can_join: false,
       join_rule: joinRule,

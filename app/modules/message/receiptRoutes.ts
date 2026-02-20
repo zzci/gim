@@ -1,8 +1,8 @@
 import type { Hono } from 'hono'
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { readReceipts, roomMembers } from '@/db/schema'
+import { readReceipts } from '@/db/schema'
+import { getMembership } from '@/models/roomMembership'
 import { getRoomId } from '@/modules/message/shared'
 import { parseEventId } from '@/shared/helpers/eventQueries'
 import { matrixForbidden } from '@/shared/middleware/errors'
@@ -13,11 +13,7 @@ export function registerReceiptRoutes(router: Hono<AuthEnv>) {
     const auth = c.get('auth')
     const roomId = getRoomId(c)
 
-    const membership = db.select({ membership: roomMembers.membership })
-      .from(roomMembers)
-      .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, auth.userId)))
-      .get()
-    if (membership?.membership !== 'join')
+    if (getMembership(roomId, auth.userId) !== 'join')
       return matrixForbidden(c, 'Not a member of this room')
 
     const receiptType = c.req.param('receiptType')
@@ -42,11 +38,7 @@ export function registerReceiptRoutes(router: Hono<AuthEnv>) {
     const auth = c.get('auth')
     const roomId = getRoomId(c)
 
-    const ms = db.select({ membership: roomMembers.membership })
-      .from(roomMembers)
-      .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, auth.userId)))
-      .get()
-    if (ms?.membership !== 'join')
+    if (getMembership(roomId, auth.userId) !== 'join')
       return matrixForbidden(c, 'Not a member of this room')
 
     const body = await c.req.json()

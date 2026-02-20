@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { accounts } from '@/db/schema'
+import { invalidateDisplayNameCache } from '@/models/account'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 import { avatarUrl as avatarUrlSchema, displayName as displayNameSchema, validate } from '@/shared/validation'
@@ -55,6 +56,8 @@ profileRoute.put('/:userId/displayname', authMiddleware, async (c) => {
   await db.update(accounts)
     .set({ displayname: body.displayname ?? null })
     .where(eq(accounts.id, userId))
+
+  invalidateDisplayNameCache(userId)
 
   return c.json({})
 })

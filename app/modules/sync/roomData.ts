@@ -1,10 +1,9 @@
-import { eq, inArray } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db, sqlite } from '@/db'
 import {
-  currentRoomState,
-  eventsState,
   roomMembers,
 } from '@/db/schema'
+import { getAllStateEventIds, getStateEventsByIds } from '@/models/roomState'
 import { queryEventById, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
 
@@ -235,17 +234,11 @@ export function buildJoinedRoomData(
   // Get state events
   let currentState: any[] = []
   if (sinceId === null || limited) {
-    const stateRows = db.select({ eventId: currentRoomState.eventId })
-      .from(currentRoomState)
-      .where(eq(currentRoomState.roomId, roomId))
-      .all()
-
-    const eventIds = new Set(stateRows.map(r => r.eventId))
+    const allStateIds = getAllStateEventIds(roomId)
     const timelineIds = new Set(roomEvents.map(e => e.id))
-
-    const stateEventIds = [...eventIds].filter(id => !timelineIds.has(id))
+    const stateEventIds = allStateIds.filter(id => !timelineIds.has(id))
     if (stateEventIds.length > 0) {
-      currentState = db.select().from(eventsState).where(inArray(eventsState.id, stateEventIds)).all()
+      currentState = getStateEventsByIds(stateEventIds)
     }
   }
 
@@ -325,14 +318,9 @@ export function buildInviteRoomData(
   }
 
   // Get invite state (stripped state events)
-  const stateRows = db.select({ eventId: currentRoomState.eventId })
-    .from(currentRoomState)
-    .where(eq(currentRoomState.roomId, roomId))
-    .all()
-
-  const inviteStateIds = stateRows.map(sr => sr.eventId)
+  const inviteStateIds = getAllStateEventIds(roomId)
   const inviteEvents = inviteStateIds.length > 0
-    ? db.select().from(eventsState).where(inArray(eventsState.id, inviteStateIds)).all().filter(event => INVITE_STATE_TYPES.includes(event.type)).map(formatEvent)
+    ? getStateEventsByIds(inviteStateIds).filter(event => INVITE_STATE_TYPES.includes(event.type)).map(formatEvent)
     : []
 
   return { invite_state: { events: inviteEvents } }

@@ -1,6 +1,4 @@
-import { and, eq } from 'drizzle-orm'
-import { db } from '@/db'
-import { devices } from '@/db/schema'
+import { getLastSyncBatch } from '@/models/device'
 
 export interface TrustContext {
   isTrusted: boolean
@@ -32,12 +30,9 @@ export function resolveTrustContext(
   }
 
   // Trusted + incremental: check if this is the first trusted sync
-  const device = db.select({ lastSyncBatch: devices.lastSyncBatch })
-    .from(devices)
-    .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
-    .get()
+  const lastBatch = getLastSyncBatch(userId, deviceId)
 
-  if (!device?.lastSyncBatch) {
+  if (!lastBatch) {
     // Trust transition: device was just verified, send full dataset
     return { isTrusted: true, trustedSinceId: null, isTrustTransition: true }
   }

@@ -1,7 +1,8 @@
 import type { Hono } from 'hono'
 import { count, eq, like, sql } from 'drizzle-orm'
 import { db } from '@/db'
-import { currentRoomState, eventsState, roomMembers, rooms } from '@/db/schema'
+import { roomMembers, rooms } from '@/db/schema'
+import { getAllStateEventIds, getStateEventsByIds } from '@/models/roomState'
 import { createEvent } from '@/modules/message/service'
 import { getAdminContext, logAdminAction } from './helpers'
 
@@ -65,35 +66,19 @@ export function registerAdminRoomsRoutes(adminRoute: Hono) {
     if (!room)
       return c.json({ errcode: 'M_NOT_FOUND', error: 'Room not found' }, 404)
 
-    const stateRows = db
-      .select({
-        eventId: currentRoomState.eventId,
-        type: currentRoomState.type,
-        stateKey: currentRoomState.stateKey,
-      })
-      .from(currentRoomState)
-      .where(eq(currentRoomState.roomId, roomId))
-      .all()
-
-    if (stateRows.length === 0)
+    const eventIds = getAllStateEventIds(roomId)
+    if (eventIds.length === 0)
       return c.json([])
 
-    const result: Array<Record<string, unknown>> = []
-    for (const row of stateRows) {
-      const event = db.select().from(eventsState).where(eq(eventsState.id, row.eventId)).get()
-      if (event) {
-        result.push({
-          type: event.type,
-          state_key: event.stateKey,
-          sender: event.sender,
-          content: event.content,
-          event_id: `$${event.id}`,
-          origin_server_ts: event.originServerTs,
-        })
-      }
-    }
-
-    return c.json(result)
+    const events = getStateEventsByIds(eventIds)
+    return c.json(events.map(event => ({
+      type: event.type,
+      state_key: event.stateKey,
+      sender: event.sender,
+      content: event.content,
+      event_id: `$${event.id}`,
+      origin_server_ts: event.originServerTs,
+    })))
   })
 
   // PUT /api/rooms/:roomId/state/:eventType/:stateKey — Room state editor

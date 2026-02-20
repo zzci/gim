@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { devices } from '@/db/schema'
+import { getLastSyncBatch } from '@/models/device'
 import { getMaxEventId } from '@/shared/helpers/eventQueries'
 
 /**
@@ -44,9 +45,5 @@ export function persistSyncPosition(
  * Get the last persisted sync batch for a device.
  */
 export function getDeviceLastSyncBatch(userId: string, deviceId: string): string | null {
-  const device = db.select({ lastSyncBatch: devices.lastSyncBatch })
-    .from(devices)
-    .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
-    .get()
-  return device?.lastSyncBatch ?? null
+  return getLastSyncBatch(userId, deviceId)
 }

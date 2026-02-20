@@ -1,8 +1,6 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
-import { db } from '@/db'
-import { devices } from '@/db/schema'
+import { getDevice } from '@/models/device'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixNotFound } from '@/shared/middleware/errors'
 
@@ -13,10 +11,7 @@ deviceGetRoute.get('/:deviceId', async (c) => {
   const auth = c.get('auth')
   const deviceId = c.req.param('deviceId')
 
-  const device = db.select().from(devices).where(and(
-    eq(devices.userId, auth.userId),
-    eq(devices.id, deviceId),
-  )).get()
+  const device = getDevice(auth.userId, deviceId)
 
   if (!device)
     return matrixNotFound(c, 'Device not found')

@@ -1,10 +1,8 @@
 import type { Hono } from 'hono'
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { eq } from 'drizzle-orm'
-import { db } from '@/db'
-import { currentRoomState, eventsState } from '@/db/schema'
+import { getMembership } from '@/models/roomMembership'
+import { getAllStateEventIds, getStateEventsByIds } from '@/models/roomState'
 import { getRoomId } from '@/modules/message/shared'
-import { getRoomMembership } from '@/modules/room/service'
 import { parseEventId, queryEventById, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations, formatEventWithRelations } from '@/shared/helpers/formatEvent'
 import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
@@ -16,7 +14,7 @@ export function registerContextRoute(router: Hono<AuthEnv>) {
     const roomId = getRoomId(c)
     const eventId = parseEventId(c.req.param('eventId'))
 
-    const membership = getRoomMembership(roomId, auth.userId)
+    const membership = getMembership(roomId, auth.userId)
     if (membership !== 'join' && membership !== 'invite') {
       return matrixForbidden(c, 'Not a member of this room')
     }
@@ -32,16 +30,8 @@ export function registerContextRoute(router: Hono<AuthEnv>) {
     const eventsAfter = queryRoomEvents(roomId, { after: target.id, order: 'asc', limit: half })
 
     // Get current room state
-    const stateRows = db.select({ eventId: currentRoomState.eventId })
-      .from(currentRoomState)
-      .where(eq(currentRoomState.roomId, roomId))
-      .all()
-
-    const { inArray } = await import('drizzle-orm')
-    const stateEventIds = stateRows.map(r => r.eventId)
-    const currentState = stateEventIds.length > 0
-      ? db.select().from(eventsState).where(inArray(eventsState.id, stateEventIds)).all()
-      : []
+    const stateEventIds = getAllStateEventIds(roomId)
+    const currentState = getStateEventsByIds(stateEventIds)
 
     const start = eventsBefore.length > 0 ? eventsBefore[eventsBefore.length - 1]!.id : target.id
     const end = eventsAfter.length > 0 ? eventsAfter[eventsAfter.length - 1]!.id : target.id
