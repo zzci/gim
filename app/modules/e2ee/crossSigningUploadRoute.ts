@@ -2,9 +2,9 @@ import type { CrossSigningDbType } from './crossSigningHelpers'
 import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
+import { cacheDelPrefix } from '@/cache'
 import { db } from '@/db'
 import { accountDataCrossSigning, devices, e2eeDeviceListChanges } from '@/db/schema'
-import { invalidateTrustCache } from '@/models/device'
 import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
@@ -128,7 +128,7 @@ crossSigningRoute.post('/', async (c) => {
         ))
         .run()
     })
-    await invalidateTrustCache(auth.userId, auth.deviceId)
+    await cacheDelPrefix(`m:dt:${auth.userId}:`)
   }
   else {
     for (const { dbType, keyData } of incoming) {
@@ -141,6 +141,7 @@ crossSigningRoute.post('/', async (c) => {
         set: { keyData },
       })
     }
+    await cacheDelPrefix(`m:dt:${auth.userId}:`)
   }
 
   db.insert(e2eeDeviceListChanges).values({

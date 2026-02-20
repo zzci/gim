@@ -155,9 +155,7 @@ export async function invalidateOAuthAccessTokensByGrantId(grantId: string): Pro
     .from(oauthTokens)
     .where(and(eq(oauthTokens.grantId, grantId), eq(oauthTokens.type, 'AccessToken')))
     .all()
-  for (const row of rows) {
-    await invalidateOAuthAccessToken(row.id)
-  }
+  await Promise.all(rows.map(row => invalidateOAuthAccessToken(row.id)))
 }
 
 export async function invalidateOAuthAccessTokensByAccountId(accountId: string): Promise<void> {
@@ -165,9 +163,7 @@ export async function invalidateOAuthAccessTokensByAccountId(accountId: string):
     .from(oauthTokens)
     .where(and(eq(oauthTokens.accountId, accountId), eq(oauthTokens.type, 'AccessToken')))
     .all()
-  for (const row of rows) {
-    await invalidateOAuthAccessToken(row.id)
-  }
+  await Promise.all(rows.map(row => invalidateOAuthAccessToken(row.id)))
 }
 
 export async function invalidateOAuthAccessTokensByAccountDevice(accountId: string, deviceId: string): Promise<void> {
@@ -179,7 +175,5 @@ export async function invalidateOAuthAccessTokensByAccountDevice(accountId: stri
       eq(oauthTokens.type, 'AccessToken'),
     ))
     .all()
-  for (const row of rows) {
-    await invalidateOAuthAccessToken(row.id)
-  }
+  await Promise.all(rows.map(row => invalidateOAuthAccessToken(row.id)))
 }

@@ -1,9 +1,9 @@
 import type { MatrixEvent } from '@/modules/message/service'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { pushers, pushNotifications, roomMembers } from '@/db/schema'
+import { pushers, pushNotifications } from '@/db/schema'
 import { getDisplayName } from '@/models/account'
-import { getJoinedMemberCount } from '@/models/roomMembership'
+import { getJoinedMemberCount, getJoinedMembers } from '@/models/roomMembership'
 import { getStateContent, getUserPowerLevel } from '@/models/roomState'
 import { sendPushNotification } from '@/modules/notification/pushGateway'
 
@@ -382,13 +382,7 @@ export async function evaluatePushRules(event: MatrixEvent, roomId: string, user
 }
 
 export async function recordNotifications(event: MatrixEvent, roomId: string): Promise<void> {
-  const members = db.select({ userId: roomMembers.userId })
-    .from(roomMembers)
-    .where(and(
-      eq(roomMembers.roomId, roomId),
-      eq(roomMembers.membership, 'join'),
-    ))
-    .all()
+  const members = await getJoinedMembers(roomId)
 
   const rows: Array<{
     userId: string
@@ -398,16 +392,16 @@ export async function recordNotifications(event: MatrixEvent, roomId: string): P
     ts: number
   }> = []
 
-  for (const member of members) {
-    if (member.userId === event.sender)
+  for (const userId of members) {
+    if (userId === event.sender)
       continue
 
-    const actions = await evaluatePushRules(event, roomId, member.userId)
+    const actions = await evaluatePushRules(event, roomId, userId)
     if (!actions || !actions.includes('notify'))
       continue
 
     rows.push({
-      userId: member.userId,
+      userId,
       roomId,
       eventId: event.event_id,
       actions,

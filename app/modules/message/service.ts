@@ -1,7 +1,7 @@
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { currentRoomState, eventsAttachments, eventsState, eventsTimeline, media, roomMembers } from '@/db/schema'
-import { invalidateMemberCount, invalidateMembership } from '@/models/roomMembership'
+import { getJoinedMembers, invalidateMemberCount, invalidateMembership } from '@/models/roomMembership'
 import { invalidateStateContent } from '@/models/roomState'
 import { recordNotifications } from '@/modules/notification/service'
 import { notifyUser } from '@/modules/sync/notifier'
@@ -142,20 +142,9 @@ export async function createEvent(input: EventInput): Promise<MatrixEvent> {
 }
 
 async function notifyRoomMembers(roomId: string) {
-  const members = db.select({ userId: roomMembers.userId })
-    .from(roomMembers)
-    .where(and(
-      eq(roomMembers.roomId, roomId),
-      eq(roomMembers.membership, 'join'),
-    ))
-    .all()
-
-  const notified = new Set<string>()
-  for (const member of members) {
-    if (!notified.has(member.userId)) {
-      notified.add(member.userId)
-      notifyUser(member.userId)
-    }
+  const members = await getJoinedMembers(roomId)
+  for (const userId of members) {
+    notifyUser(userId)
   }
 }
 

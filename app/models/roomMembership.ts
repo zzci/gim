@@ -47,9 +47,16 @@ export async function getJoinedMemberCount(roomId: string): Promise<number> {
   return cnt
 }
 
-/** Get all joined member user IDs in a room (uncached). */
-export function getJoinedMembers(roomId: string): string[] {
-  return db.select({ userId: roomMembers.userId })
+const JOINED_MEMBERS_TTL = 30 // 30 seconds
+
+/** Get all joined member user IDs in a room (cached, 30s TTL). */
+export async function getJoinedMembers(roomId: string): Promise<string[]> {
+  const cacheKey = `m:jm:${roomId}`
+  const cached = await cacheGet<string[]>(cacheKey)
+  if (cached !== null)
+    return cached
+
+  const members = db.select({ userId: roomMembers.userId })
     .from(roomMembers)
     .where(and(
       eq(roomMembers.roomId, roomId),
@@ -57,6 +64,8 @@ export function getJoinedMembers(roomId: string): string[] {
     ))
     .all()
     .map(r => r.userId)
+  await cacheSet(cacheKey, members, { ttl: JOINED_MEMBERS_TTL })
+  return members
 }
 
 /** Get all room IDs a user has joined (uncached). */
@@ -76,7 +85,10 @@ export async function invalidateMembership(roomId: string, userId: string): Prom
   await cacheDel(`m:rm:${roomId}:${userId}`)
 }
 
-/** Invalidate cached member count for a room. */
+/** Invalidate cached member count and joined members list for a room. */
 export async function invalidateMemberCount(roomId: string): Promise<void> {
-  await cacheDel(`m:mc:${roomId}`)
+  await Promise.all([
+    cacheDel(`m:mc:${roomId}`),
+    cacheDel(`m:jm:${roomId}`),
+  ])
 }
