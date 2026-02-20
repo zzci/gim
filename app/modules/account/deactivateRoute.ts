@@ -3,7 +3,9 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { accountDataCrossSigning, accounts, accountTokens, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
+import { invalidateAccountTokens } from '@/modules/account/tokenCache'
 import { createEvent } from '@/modules/message/service'
+import { invalidateOAuthAccessTokensByAccountId } from '@/oauth/accessTokenCache'
 import { authMiddleware } from '@/shared/middleware/auth'
 
 export const deactivateRoute = new Hono<AuthEnv>()
@@ -13,11 +15,16 @@ deactivateRoute.post('/', async (c) => {
   const auth = c.get('auth')
   const userId = auth.userId
 
-  const joinedRooms = db.transaction((tx) => {
+  const { joinedRooms, revokedTokens, localpart } = db.transaction((tx) => {
     tx.update(accounts).set({ isDeactivated: true }).where(eq(accounts.id, userId)).run()
 
     const localpart = userId.split(':')[0]?.slice(1) || ''
     tx.delete(oauthTokens).where(eq(oauthTokens.accountId, localpart)).run()
+
+    const revokedTokenRows = tx.select({ token: accountTokens.token })
+      .from(accountTokens)
+      .where(eq(accountTokens.userId, userId))
+      .all()
 
     tx.delete(accountTokens).where(eq(accountTokens.userId, userId)).run()
 
@@ -37,8 +44,15 @@ deactivateRoute.post('/', async (c) => {
 
     tx.delete(devices).where(eq(devices.userId, userId)).run()
 
-    return rooms
+    return {
+      joinedRooms: rooms,
+      revokedTokens: revokedTokenRows.map(r => r.token),
+      localpart,
+    }
   })
+
+  await invalidateAccountTokens(revokedTokens)
+  await invalidateOAuthAccessTokensByAccountId(localpart)
 
   for (const { roomId } of joinedRooms) {
     createEvent({

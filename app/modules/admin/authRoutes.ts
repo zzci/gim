@@ -1,9 +1,11 @@
 import type { Hono } from 'hono'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { setCookie } from 'hono/cookie'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { accounts, accountTokens, oauthTokens } from '@/db/schema'
+import { accounts } from '@/db/schema'
+import { getAccountToken } from '@/modules/account/tokenCache'
+import { getOAuthAccessToken } from '@/oauth/accessTokenCache'
 
 export function registerAdminAuthRoutes(adminRoute: Hono) {
   // POST /api/login — validate token and set httpOnly cookie
@@ -15,14 +17,9 @@ export function registerAdminAuthRoutes(adminRoute: Hono) {
     }
 
     // Validate the token works by checking it against auth stores
-    const oauthRow = db.select({ accountId: oauthTokens.accountId, expiresAt: oauthTokens.expiresAt })
-      .from(oauthTokens)
-      .where(and(eq(oauthTokens.id, `AccessToken:${token}`), eq(oauthTokens.type, 'AccessToken')))
-      .get()
+    const oauthRow = await getOAuthAccessToken(token)
 
-    const userTokenRow = !oauthRow
-      ? db.select({ userId: accountTokens.userId }).from(accountTokens).where(eq(accountTokens.token, token)).get()
-      : null
+    const userTokenRow = !oauthRow ? await getAccountToken(token) : null
 
     if (!oauthRow && !userTokenRow) {
       return c.json({ error: 'Invalid token' }, 401)
@@ -30,6 +27,9 @@ export function registerAdminAuthRoutes(adminRoute: Hono) {
 
     if (oauthRow?.expiresAt && oauthRow.expiresAt.getTime() < Date.now()) {
       return c.json({ error: 'Token expired' }, 401)
+    }
+    if (oauthRow?.consumedAt) {
+      return c.json({ error: 'Token revoked' }, 401)
     }
 
     // Resolve userId and check admin flag

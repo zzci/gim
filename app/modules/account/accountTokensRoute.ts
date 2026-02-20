@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { accountTokens, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages } from '@/db/schema'
+import { cacheAccountToken, getAccountToken, invalidateAccountToken } from '@/modules/account/tokenCache'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixNotFound } from '@/shared/middleware/errors'
 
@@ -42,6 +43,15 @@ accountTokensRoute.post('/', async (c) => {
     name,
   }).run()
 
+  await cacheAccountToken({
+    token,
+    userId: auth.userId,
+    deviceId,
+    name,
+    createdAt: new Date(),
+    lastUsedAt: null,
+  })
+
   return c.json({
     token,
     user_id: auth.userId,
@@ -59,15 +69,27 @@ accountTokensRoute.get('/', async (c) => {
     .where(eq(accountTokens.userId, auth.userId))
     .all()
 
-  return c.json({
-    tokens: rows.map(r => ({
-      token: maskToken(r.token),
-      device_id: r.deviceId,
-      name: r.name,
-      created_at: r.createdAt ? Number(r.createdAt) : null,
-      last_used_at: r.lastUsedAt ? Number(r.lastUsedAt) : null,
-    })),
-  })
+  const tokens = []
+  for (const row of rows) {
+    const cached = await getAccountToken(row.token)
+    const effective = cached || {
+      token: row.token,
+      userId: row.userId,
+      deviceId: row.deviceId,
+      name: row.name,
+      createdAt: row.createdAt ? new Date(row.createdAt) : null,
+      lastUsedAt: row.lastUsedAt ? new Date(row.lastUsedAt) : null,
+    }
+    tokens.push({
+      token: maskToken(row.token),
+      device_id: effective.deviceId,
+      name: effective.name,
+      created_at: effective.createdAt ? Number(effective.createdAt) : null,
+      last_used_at: effective.lastUsedAt ? Number(effective.lastUsedAt) : null,
+    })
+  }
+
+  return c.json({ tokens })
 })
 
 accountTokensRoute.delete('/:token', async (c) => {
@@ -85,6 +107,7 @@ accountTokensRoute.delete('/:token', async (c) => {
   const { deviceId } = row
 
   db.delete(accountTokens).where(eq(accountTokens.token, token)).run()
+  await invalidateAccountToken(token)
 
   db.delete(e2eeDeviceKeys).where(and(
     eq(e2eeDeviceKeys.userId, auth.userId),

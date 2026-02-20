@@ -5,6 +5,7 @@ import { cacheDel, cacheGet, cacheSet } from '@/cache'
 import { serverName, upstreamClientId, upstreamClientSecret, upstreamIssuer } from '@/config'
 import { db } from '@/db'
 import { accounts, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens } from '@/db/schema'
+import { getOAuthAccessToken, invalidateOAuthAccessToken, invalidateOAuthAccessTokensByAccountDevice, invalidateOAuthAccessTokensByGrantId } from '@/oauth/accessTokenCache'
 import { provisionUser } from './account'
 import { exchangeAuthCode, exchangeRefreshToken, signingJwk, toTokenResponse } from './tokens'
 
@@ -122,7 +123,7 @@ interface ActionState {
   expiresAt: number
 }
 
-function deleteDevice(deviceId: string) {
+async function deleteDevice(deviceId: string) {
   const device = db.select({ userId: devices.userId })
     .from(devices)
     .where(eq(devices.id, deviceId))
@@ -141,6 +142,9 @@ function deleteDevice(deviceId: string) {
   for (const grantId of grantIds)
     db.delete(oauthTokens).where(eq(oauthTokens.grantId, grantId)).run()
   db.delete(oauthTokens).where(and(eq(oauthTokens.deviceId, deviceId), eq(oauthTokens.accountId, localpart))).run()
+  await invalidateOAuthAccessTokensByAccountDevice(localpart, deviceId)
+  for (const grantId of grantIds)
+    await invalidateOAuthAccessTokensByGrantId(grantId)
 
   // Clean up E2EE keys
   db.delete(e2eeDeviceKeys).where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, deviceId))).run()
@@ -403,7 +407,7 @@ oauthApp.get('/auth/callback', async (c) => {
           .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
           .get()
         if (device)
-          deleteDevice(deviceId)
+          await deleteDevice(deviceId)
       }
       return c.html(closePage)
     }
@@ -501,17 +505,14 @@ oauthApp.post('/token', async (c) => {
 })
 
 // GET /me — userinfo endpoint
-oauthApp.get('/me', (c) => {
+oauthApp.get('/me', async (c) => {
   const auth = c.req.header('Authorization')
   if (!auth?.startsWith('Bearer ')) {
     return c.json({ error: 'invalid_token' }, 401)
   }
 
   const token = auth.slice(7)
-  const row = db.select()
-    .from(oauthTokens)
-    .where(eq(oauthTokens.id, `AccessToken:${token}`))
-    .get()
+  const row = await getOAuthAccessToken(token)
 
   if (!row) {
     return c.json({ error: 'invalid_token' }, 401)
@@ -557,7 +558,11 @@ oauthApp.post('/revoke', async (c) => {
         // Delete entire grant
         db.delete(oauthTokens).where(eq(oauthTokens.grantId, row.grantId)).run()
         db.delete(oauthTokens).where(eq(oauthTokens.id, `Grant:${row.grantId}`)).run()
+        await invalidateOAuthAccessTokensByGrantId(row.grantId)
         break
+      }
+      if (type === 'AccessToken') {
+        await invalidateOAuthAccessToken(token)
       }
     }
   }

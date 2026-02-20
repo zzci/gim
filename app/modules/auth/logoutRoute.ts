@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens } from '@/db/schema'
+import { invalidateOAuthAccessToken, invalidateOAuthAccessTokensByAccountId } from '@/oauth/accessTokenCache'
 import { authMiddleware } from '@/shared/middleware/auth'
 
 export const logoutRoute = new Hono<AuthEnv>()
@@ -14,6 +15,7 @@ logoutRoute.post('/', async (c) => {
 
   if (token) {
     db.delete(oauthTokens).where(eq(oauthTokens.id, `AccessToken:${token}`)).run()
+    await invalidateOAuthAccessToken(token)
   }
 
   deleteDeviceKeys(auth.userId, auth.deviceId)
@@ -31,7 +33,7 @@ logoutRoute.post('/', async (c) => {
 logoutRoute.post('/all', async (c) => {
   const auth = c.get('auth')
 
-  const deviceCount = db.transaction((tx) => {
+  const { deviceCount, localpart } = db.transaction((tx) => {
     const userDevices = tx.select({ id: devices.id }).from(devices).where(eq(devices.userId, auth.userId)).all()
 
     for (const d of userDevices) {
@@ -70,10 +72,12 @@ logoutRoute.post('/all', async (c) => {
 
     tx.delete(devices).where(eq(devices.userId, auth.userId)).run()
 
-    return userDevices.length
+    return { deviceCount: userDevices.length, localpart }
   })
 
   logger.info('logout_all', { userId: auth.userId, deviceCount })
+
+  await invalidateOAuthAccessTokensByAccountId(localpart)
 
   return c.json({})
 })

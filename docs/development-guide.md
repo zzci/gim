@@ -413,6 +413,9 @@ sqlite3 data/gim.db "SELECT * FROM accounts LIMIT 10"
 | `IM_OIDC_CLIENT_SECRET` | — | 是 | OIDC Client Secret |
 | `DB_PATH` | data/gim.db | 否 | SQLite 文件路径 |
 | `IM_CACHE_DRIVER` | memory | 否 | 缓存驱动 (memory/redis) |
+| `IM_ACCOUNT_TOKEN_CACHE_MAX_TTL_SEC` | 7200 | 否 | account token 缓存最大 TTL（秒） |
+| `IM_ACCOUNT_TOKEN_VALIDITY_SEC` | 0 | 否 | account token 有效期（秒，0=不过期） |
+| `IM_OAUTH_ACCESS_TOKEN_CACHE_MAX_TTL_SEC` | 3600 | 否 | OAuth access token 缓存最大 TTL（秒） |
 | `IM_LOG_FORMAT` | 自动 | 否 | 日志格式 (json/cli) |
 | `IM_LOG_LEVEL` | 自动 | 否 | 日志级别 (error/warn/info/http/verbose/debug/silly) |
 | `IM_MAX_ROOM_MEMBERS` | 0 | 否 | 房间成员上限 (0=无限) |

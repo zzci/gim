@@ -2,6 +2,8 @@ import type { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { accountTokens, oauthTokens } from '@/db/schema'
+import { invalidateAccountToken } from '@/modules/account/tokenCache'
+import { invalidateOAuthAccessToken } from '@/oauth/accessTokenCache'
 import { getAdminContext, logAdminAction } from './helpers'
 
 export function registerAdminTokensRoutes(adminRoute: Hono) {
@@ -19,12 +21,14 @@ export function registerAdminTokensRoutes(adminRoute: Hono) {
   })
 
   // DELETE /api/tokens/:tokenId — Delete token
-  adminRoute.delete('/api/tokens/:tokenId', (c) => {
+  adminRoute.delete('/api/tokens/:tokenId', async (c) => {
     const tokenId = c.req.param('tokenId')
 
     // Try both — delete is idempotent
     db.delete(oauthTokens).where(eq(oauthTokens.id, tokenId)).run()
     db.delete(accountTokens).where(eq(accountTokens.token, tokenId)).run()
+    await invalidateAccountToken(tokenId)
+    await invalidateOAuthAccessToken(tokenId)
 
     const { adminUserId, ip } = getAdminContext(c)
     logAdminAction(adminUserId, 'token.revoke', 'token', tokenId, null, ip)

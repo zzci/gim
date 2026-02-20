@@ -4,6 +4,7 @@ import { and, eq, gte, isNull, or } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { accountDataCrossSigning, devices, oauthTokens } from '@/db/schema'
+import { primeOAuthAccessTokenCache } from '@/oauth/accessTokenCache'
 import { generateDeviceId } from '@/utils/tokens'
 
 // ECDSA P-256 key pair for id_token signing (regenerated on restart)
@@ -182,6 +183,18 @@ function createTokenPair(
     grantId,
     expiresAt: new Date(nowMs + ACCESS_TOKEN_TTL * 1000),
   }).run()
+  primeOAuthAccessTokenCache({
+    token: accessJti,
+    id: `AccessToken:${accessJti}`,
+    type: 'AccessToken',
+    accountId,
+    deviceId,
+    clientId,
+    scope,
+    grantId: grantId || null,
+    expiresAt: new Date(nowMs + ACCESS_TOKEN_TTL * 1000),
+    consumedAt: null,
+  })
 
   // Create RefreshToken
   db.insert(oauthTokens).values({

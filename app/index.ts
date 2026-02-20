@@ -5,6 +5,7 @@ import { inspectRoutes } from 'hono/dev'
 import { startCron } from '@/cron'
 import { sqlite } from '@/db'
 import { accountDataRoute, accountTokensRoute, deactivateRoute, profileRoute, pushRulesRoute, userFilterRoute, whoamiRoute } from '@/modules/account'
+import { flushAccountTokenLastUsedAt } from '@/modules/account/tokenCache'
 import { adminRoute } from '@/modules/admin'
 import { appServicePingRoute } from '@/modules/appservice'
 import { loadAppServiceRegistrations } from '@/modules/appservice/config'
@@ -229,6 +230,7 @@ async function run() {
   async function shutdown(signal: string) {
     logger.warn('server_shutdown', { signal })
     stopCron()
+    flushAccountTokenLastUsedAt()
     http.stop()
     sqlite.close()
     logger.info('server_stopped')

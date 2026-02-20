@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens } from '@/db/schema'
+import { invalidateOAuthAccessTokensByAccountDevice, invalidateOAuthAccessTokensByGrantId } from '@/oauth/accessTokenCache'
 import { authMiddleware } from '@/shared/middleware/auth'
 
 export const deviceDeleteRoute = new Hono<AuthEnv>()
@@ -11,10 +12,10 @@ deviceDeleteRoute.use('/*', authMiddleware)
 deviceDeleteRoute.delete('/:deviceId', async (c) => {
   const auth = c.get('auth')
   const deviceId = c.req.param('deviceId')
+  const localpart = auth.userId.split(':')[0]!.slice(1)
 
-  db.transaction((tx) => {
+  const grantIds = db.transaction((tx) => {
     // Scope OAuth token deletion to the authenticated user's account
-    const localpart = auth.userId.split(':')[0]!.slice(1)
     const tokenRows = tx.select({ grantId: oauthTokens.grantId })
       .from(oauthTokens)
       .where(and(eq(oauthTokens.deviceId, deviceId), eq(oauthTokens.accountId, localpart)))
@@ -49,7 +50,14 @@ deviceDeleteRoute.delete('/:deviceId', async (c) => {
     tx.delete(devices)
       .where(and(eq(devices.userId, auth.userId), eq(devices.id, deviceId)))
       .run()
+
+    return [...grantIds]
   })
+
+  await invalidateOAuthAccessTokensByAccountDevice(localpart, deviceId)
+  for (const grantId of grantIds) {
+    await invalidateOAuthAccessTokensByGrantId(grantId)
+  }
 
   return c.json({})
 })

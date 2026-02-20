@@ -3,8 +3,10 @@ import type { DeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { and, eq } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { accountDataCrossSigning, accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
+import { accountDataCrossSigning, accounts, devices, oauthTokens } from '@/db/schema'
+import { getAccountToken, markAccountTokenUsed } from '@/modules/account/tokenCache'
 import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
+import { getOAuthAccessToken } from '@/oauth/accessTokenCache'
 import { isPathAllowedForUnverifiedDevice, normalizeDeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { generateDeviceId } from '@/utils/tokens'
 import { matrixError } from './errors'
@@ -12,13 +14,14 @@ import { matrixError } from './errors'
 const deviceLastUpdated = new Map<string, number>()
 const DEVICE_UPDATE_INTERVAL = 5 * 60 * 1000 // 5 minutes
 
-setInterval(() => {
+const cleanupTimer = setInterval(() => {
   const cutoff = Date.now() - 30 * 60 * 1000
   for (const [key, ts] of deviceLastUpdated) {
     if (ts < cutoff)
       deviceLastUpdated.delete(key)
   }
 }, 10 * 60 * 1000)
+cleanupTimer.unref()
 
 export interface AuthContext {
   userId: string
@@ -75,12 +78,7 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 
   // Try OAuth tokens first
-  const row = db.select().from(oauthTokens).where(
-    and(
-      eq(oauthTokens.id, `AccessToken:${token}`),
-      eq(oauthTokens.type, 'AccessToken'),
-    ),
-  ).get()
+  const row = await getOAuthAccessToken(token)
 
   let userId: string
   let deviceId: string
@@ -114,15 +112,15 @@ export async function authMiddleware(c: Context, next: Next) {
   }
   else {
     // Fall back to user tokens (long-lived bot tokens)
-    const userToken = db.select().from(accountTokens).where(eq(accountTokens.token, token)).get()
+    const userToken = await getAccountToken(token)
     if (!userToken) {
       return matrixError(c, 'M_UNKNOWN_TOKEN', 'Unknown or expired access token', { soft_logout: false })
     }
     userId = userToken.userId
     deviceId = userToken.deviceId
 
-    // Update lastUsedAt
-    db.update(accountTokens).set({ lastUsedAt: new Date() }).where(eq(accountTokens.token, token)).run()
+    // Write-through cache; DB sync is batched by token cache service every 2 hours.
+    await markAccountTokenUsed(token)
   }
 
   const existingDevice = db.select({ trustState: devices.trustState })
