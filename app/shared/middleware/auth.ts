@@ -5,7 +5,7 @@ import { serverName } from '@/config'
 import { db } from '@/db'
 import { accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
 import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
-import { normalizeDeviceTrustState } from '@/shared/middleware/deviceTrust'
+import { isPathAllowedForUnverifiedDevice, normalizeDeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { generateDeviceId } from '@/utils/tokens'
 import { matrixError } from './errors'
 
@@ -161,5 +161,11 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 
   c.set('auth', { userId, deviceId, isGuest: false, trustState } as AuthContext)
+
+  if (trustState !== 'trusted') {
+    if (!isPathAllowedForUnverifiedDevice(c.req.path, c.req.method))
+      return matrixError(c, 'M_FORBIDDEN', 'Device is not verified', { errcode_detail: 'M_DEVICE_UNVERIFIED' })
+  }
+
   await next()
 }

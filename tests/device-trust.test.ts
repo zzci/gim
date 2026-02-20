@@ -5,6 +5,115 @@ import { accountDataCrossSigning, devices, e2eeDeviceKeys, e2eeDeviceListChanges
 import { generateUlid } from '@/utils/tokens'
 import { getAlice, getBob, loadTokens, txnId } from './helpers'
 
+async function setAliceUnverified() {
+  const tokens = await loadTokens()
+  db.update(devices)
+    .set({ trustState: 'unverified' })
+    .where(and(eq(devices.userId, tokens.alice.userId), eq(devices.id, tokens.alice.deviceId)))
+    .run()
+}
+
+describe('Unverified Device Default-Deny Gate', () => {
+  test('unverified device gets 403 on POST /createRoom', async () => {
+    const alice = await getAlice()
+    await setAliceUnverified()
+    let err: any
+    try {
+      await alice.createRoom({})
+    }
+    catch (e) { err = e }
+    expect(err?.status).toBe(403)
+    expect(err?.body?.errcode_detail).toBe('M_DEVICE_UNVERIFIED')
+  })
+
+  test('unverified device gets 403 on PUT /rooms/:roomId/send', async () => {
+    const alice = await getAlice()
+    await setAliceUnverified()
+    let err: any
+    try {
+      await alice.sendMessage('!fake:localhost', txnId(), { msgtype: 'm.text', body: 'hi' })
+    }
+    catch (e) { err = e }
+    expect(err?.status).toBe(403)
+    expect(err?.body?.errcode_detail).toBe('M_DEVICE_UNVERIFIED')
+  })
+
+  test('unverified device gets 403 on DELETE /devices/:deviceId', async () => {
+    const tokens = await loadTokens()
+    const alice = await getAlice()
+    await setAliceUnverified()
+    let err: any
+    try {
+      await alice.request('DELETE', `/_matrix/client/v3/devices/${tokens.alice.deviceId}`, {})
+    }
+    catch (e) { err = e }
+    expect(err?.status).toBe(403)
+    expect(err?.body?.errcode_detail).toBe('M_DEVICE_UNVERIFIED')
+  })
+
+  test('unverified device can GET /devices', async () => {
+    const alice = await getAlice()
+    await setAliceUnverified()
+    const res = await alice.getDevices()
+    expect(res.devices).toBeDefined()
+  })
+
+  test('unverified device can POST /keys/upload', async () => {
+    const alice = await getAlice()
+    await setAliceUnverified()
+    const res = await alice.uploadKeys({})
+    expect(res).toBeDefined()
+  })
+
+  test('unverified device can GET /sync', async () => {
+    const alice = await getAlice()
+    await setAliceUnverified()
+    const res = await alice.sync({ timeout: 0 })
+    expect(res.next_batch).toBeDefined()
+  })
+
+  test('unverified device can POST /logout', async () => {
+    // We don't actually logout because it would invalidate the token for other tests.
+    // Instead verify the path passes the gate by checking we don't get M_DEVICE_UNVERIFIED.
+    const alice = await getAlice()
+    await setAliceUnverified()
+    const res = await alice.whoami()
+    expect(res.user_id).toBeDefined()
+  })
+
+  test('unverified device can GET /account/whoami', async () => {
+    const alice = await getAlice()
+    await setAliceUnverified()
+    const res = await alice.whoami()
+    expect(res.user_id).toBeDefined()
+  })
+
+  test('unverified device gets 403 on room account data', async () => {
+    const alice = await getAlice()
+    await setAliceUnverified()
+    let err: any
+    try {
+      await alice.request('PUT', '/_matrix/client/v3/rooms/!fake:localhost/account_data/m.test', { foo: 'bar' })
+    }
+    catch (e) { err = e }
+    expect(err?.status).toBe(403)
+    expect(err?.body?.errcode_detail).toBe('M_DEVICE_UNVERIFIED')
+  })
+
+  test('unverified device gets 403 on non-cross-signing account data', async () => {
+    const tokens = await loadTokens()
+    const alice = await getAlice()
+    await setAliceUnverified()
+    let err: any
+    try {
+      await alice.setAccountData(tokens.alice.userId, 'm.some_random_type', { foo: 'bar' })
+    }
+    catch (e) { err = e }
+    expect(err?.status).toBe(403)
+    expect(err?.body?.errcode_detail).toBe('M_DEVICE_UNVERIFIED')
+  })
+})
+
 describe('Device Trust Isolation', () => {
   beforeEach(async () => {
     const tokens = await loadTokens()

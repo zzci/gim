@@ -3,6 +3,9 @@
  * Assumes the server is running (bun dev) and examples/setup.ts has been run.
  */
 
+import { and, eq } from 'drizzle-orm'
+import { db } from '@/db'
+import { devices } from '@/db/schema'
 import { MatrixClient } from '../examples/client'
 
 const BASE_URL = process.env.GIM_URL || 'http://localhost:3000'
@@ -28,13 +31,22 @@ export async function loadTokens(): Promise<Tokens> {
   return _tokens
 }
 
+function ensureTrusted(userId: string, deviceId: string) {
+  db.update(devices)
+    .set({ trustState: 'trusted' })
+    .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
+    .run()
+}
+
 export async function getAlice(): Promise<MatrixClient> {
   const t = await loadTokens()
+  ensureTrusted(t.alice.userId, t.alice.deviceId)
   return new MatrixClient(BASE_URL, t.alice.accessToken, t.alice.userId)
 }
 
 export async function getBob(): Promise<MatrixClient> {
   const t = await loadTokens()
+  ensureTrusted(t.bob.userId, t.bob.deviceId)
   return new MatrixClient(BASE_URL, t.bob.accessToken, t.bob.userId)
 }
 
