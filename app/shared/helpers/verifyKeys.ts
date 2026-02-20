@@ -24,6 +24,55 @@ function base64UrlToBuffer(b64: string): Buffer {
   return Buffer.from(padded, 'base64')
 }
 
+/**
+ * Verify that a signed object has a valid Ed25519 signature from a given public key.
+ * Used to verify cross-signing signatures (e.g. self-signing key signing a device).
+ */
+export function verifyEd25519Signature(
+  signedObject: Record<string, any>,
+  signerUserId: string,
+  signerKeyId: string,
+  signerPublicKeyBase64: string,
+): { valid: true } | { valid: false, reason: string } {
+  const signatures = signedObject.signatures as Record<string, Record<string, string>> | undefined
+  const userSigs = signatures?.[signerUserId]
+  if (!userSigs || !userSigs[signerKeyId])
+    return { valid: false, reason: `Missing signature for ${signerKeyId}` }
+
+  const signature = userSigs[signerKeyId]
+
+  const toVerify: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(signedObject)) {
+    if (k !== 'signatures' && k !== 'unsigned')
+      toVerify[k] = v
+  }
+
+  const message = canonicalJson(toVerify)
+
+  try {
+    const publicKeyBuffer = base64UrlToBuffer(signerPublicKeyBase64)
+    const signatureBuffer = base64UrlToBuffer(signature)
+
+    const key = createPublicKey({
+      key: Buffer.concat([
+        Buffer.from('302a300506032b6570032100', 'hex'),
+        publicKeyBuffer,
+      ]),
+      format: 'der',
+      type: 'spki',
+    })
+
+    const isValid = verify(null, Buffer.from(message), key, signatureBuffer)
+    if (!isValid)
+      return { valid: false, reason: 'Ed25519 signature verification failed' }
+
+    return { valid: true }
+  }
+  catch (err: any) {
+    return { valid: false, reason: `Signature verification error: ${err.message}` }
+  }
+}
+
 export function verifyDeviceKeySignature(
   deviceKeys: Record<string, any>,
   userId: string,

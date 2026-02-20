@@ -2,7 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { accounts, devices, oauthTokens } from '@/db/schema'
+import { accountDataCrossSigning, accounts, devices, oauthTokens } from '@/db/schema'
 import { issueTokensViaPkce } from '@/oauth/tokens'
 import { matrixError } from '@/shared/middleware/errors'
 import { generateDeviceId } from '@/utils/tokens'
@@ -93,8 +93,17 @@ loginRoute.post('/', async (c) => {
     }
   }
   const localpart = userId.split(':')[0]!.slice(1)
-  const defaultTrustState = 'unverified'
-  const defaultTrustReason = 'new_login_unverified'
+
+  // First device for a user should be trusted automatically — but only if they have
+  // no cross-signing keys (user may have deleted all devices but still has keys set up)
+  const existingDeviceCount = db.select({ id: devices.id }).from(devices).where(eq(devices.userId, userId)).all().length
+  const hasCrossSigningKeys = !!db.select({ userId: accountDataCrossSigning.userId })
+    .from(accountDataCrossSigning)
+    .where(and(eq(accountDataCrossSigning.userId, userId), eq(accountDataCrossSigning.keyType, 'master')))
+    .get()
+  const isFirstDevice = existingDeviceCount === 0 && !hasCrossSigningKeys
+  const defaultTrustState = isFirstDevice ? 'trusted' : 'unverified'
+  const defaultTrustReason = isFirstDevice ? 'first_device' : 'new_login_unverified'
 
   await db.insert(devices).values({
     userId,

@@ -1,9 +1,9 @@
 import type { CrossSigningDbType } from './crossSigningHelpers'
 import type { AuthEnv } from '@/shared/middleware/auth'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountDataCrossSigning, e2eeDeviceListChanges } from '@/db/schema'
+import { accountDataCrossSigning, devices, e2eeDeviceListChanges } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
@@ -111,6 +111,21 @@ crossSigningRoute.post('/', async (c) => {
           keyData,
         }).run()
       }
+
+      // Cross-signing reset requires m.login.reauth — trust the device that performed it
+      tx.update(devices)
+        .set({
+          trustState: 'trusted',
+          trustReason: 'cross_signing_reset',
+          verifiedAt: new Date(),
+          verifiedByDeviceId: auth.deviceId,
+        })
+        .where(and(
+          eq(devices.userId, auth.userId),
+          eq(devices.id, auth.deviceId),
+          eq(devices.trustState, 'unverified'),
+        ))
+        .run()
     })
   }
   else {

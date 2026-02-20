@@ -3,7 +3,7 @@ import { createHash, createSign, generateKeyPairSync, randomBytes } from 'node:c
 import { and, eq, gte, isNull, or } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { devices, oauthTokens } from '@/db/schema'
+import { accountDataCrossSigning, devices, oauthTokens } from '@/db/schema'
 import { generateDeviceId } from '@/utils/tokens'
 
 // ECDSA P-256 key pair for id_token signing (regenerated on restart)
@@ -137,10 +137,20 @@ function createTokenPair(
     // Inject device scope: replace invalid one or append.
     scope = upsertDeviceScope(scope, deviceId, deviceScope?.prefix || STABLE_DEVICE_SCOPE_PREFIX)
 
-    // Create device record
+    // First device for a user should be trusted automatically — but only if they have
+    // no cross-signing keys (user may have deleted all devices but still has keys set up)
+    const existingDeviceCount = db.select({ id: devices.id }).from(devices).where(eq(devices.userId, userId)).all().length
+    const hasCrossSigningKeys = !!db.select({ userId: accountDataCrossSigning.userId })
+      .from(accountDataCrossSigning)
+      .where(and(eq(accountDataCrossSigning.userId, userId), eq(accountDataCrossSigning.keyType, 'master')))
+      .get()
+    const isFirstDevice = existingDeviceCount === 0 && !hasCrossSigningKeys
+
     db.insert(devices).values({
       userId,
       id: deviceId,
+      trustState: isFirstDevice ? 'trusted' : 'unverified',
+      trustReason: isFirstDevice ? 'first_device' : 'new_login_unverified',
     }).onConflictDoNothing().run()
   }
 

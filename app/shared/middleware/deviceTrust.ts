@@ -48,6 +48,7 @@ const UNVERIFIED_ALLOWED_PREFIXES = [
   '/_matrix/client/unstable/org.matrix.simplified_msc3575/sync',
   '/_matrix/client/v3/keys/',
   '/_matrix/client/v3/sendToDevice/',
+  '/_matrix/client/v3/pushrules/',
 ]
 
 export function isPathAllowedForUnverifiedDevice(path: string, method: string): boolean {

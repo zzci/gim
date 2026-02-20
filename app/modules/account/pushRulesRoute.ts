@@ -8,9 +8,11 @@ pushRulesRoute.use('/*', authMiddleware)
 
 pushRulesRoute.get('/', async (c) => {
   const auth = c.get('auth')
+  if (auth.trustState !== 'trusted')
+    return c.json({ global: { override: [], underride: [], sender: [], room: [], content: [] } })
   return c.json(getDefaultPushRules(auth.userId))
 })
 
-pushRulesRoute.get('/*', async (c) => c.json({}))
-pushRulesRoute.put('/*', async (c) => c.json({}))
-pushRulesRoute.delete('/*', async (c) => c.json({}))
+pushRulesRoute.get('/*', async c => c.json({}))
+pushRulesRoute.put('/*', async c => c.json({}))
+pushRulesRoute.delete('/*', async c => c.json({}))

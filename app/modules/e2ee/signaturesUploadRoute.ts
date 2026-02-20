@@ -2,8 +2,9 @@ import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
-import { accountDataCrossSigning, e2eeDeviceKeys, e2eeDeviceListChanges } from '@/db/schema'
+import { accountDataCrossSigning, devices, e2eeDeviceKeys, e2eeDeviceListChanges } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
+import { verifyEd25519Signature } from '@/shared/helpers/verifyKeys'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { generateUlid } from '@/utils/tokens'
 
@@ -54,6 +55,55 @@ signaturesUploadRoute.post('/', async (c) => {
           .where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, dk.deviceId)))
           .run()
         logger.debug('signatures_upload_applied_device_key', { userId, keyId, matchedDeviceId: dk.deviceId })
+
+        // Check if this is a self-signing key signature on the user's own device
+        // If valid, promote the device to trusted (allows recovery via private key import)
+        if (userId === auth.userId) {
+          const selfSigningKey = db.select({ keyData: accountDataCrossSigning.keyData })
+            .from(accountDataCrossSigning)
+            .where(and(
+              eq(accountDataCrossSigning.userId, userId),
+              eq(accountDataCrossSigning.keyType, 'self_signing'),
+            ))
+            .get()
+
+          if (selfSigningKey) {
+            const ssKeys = (selfSigningKey.keyData as any).keys as Record<string, string> | undefined
+            if (ssKeys) {
+              const ssKeyEntry = Object.entries(ssKeys).find(([k]) => k.startsWith('ed25519:'))
+              if (ssKeyEntry) {
+                const [ssKeyId, ssPublicKey] = ssKeyEntry
+                // Build the full signed device object for verification
+                const fullDeviceObj = {
+                  user_id: userId,
+                  device_id: dk.deviceId,
+                  algorithms: dk.algorithms,
+                  keys: dk.keys,
+                  signatures: merged,
+                }
+                const sigResult = verifyEd25519Signature(fullDeviceObj, userId, ssKeyId, ssPublicKey)
+                if (sigResult.valid) {
+                  db.update(devices)
+                    .set({
+                      trustState: 'trusted',
+                      trustReason: 'self_signing_verified',
+                      verifiedAt: new Date(),
+                      verifiedByDeviceId: auth.deviceId,
+                    })
+                    .where(and(
+                      eq(devices.userId, userId),
+                      eq(devices.id, dk.deviceId),
+                      eq(devices.trustState, 'unverified'),
+                    ))
+                    .run()
+                  logger.info('device_trust_promoted_by_self_signing', { userId, deviceId: dk.deviceId })
+                  notifyUser(userId)
+                }
+              }
+            }
+          }
+        }
+
         anySuccess = true
         continue
       }

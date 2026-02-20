@@ -3,7 +3,7 @@ import type { DeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { and, eq } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
-import { accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
+import { accountDataCrossSigning, accounts, accountTokens, devices, oauthTokens } from '@/db/schema'
 import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
 import { isPathAllowedForUnverifiedDevice, normalizeDeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { generateDeviceId } from '@/utils/tokens'
@@ -129,7 +129,18 @@ export async function authMiddleware(c: Context, next: Next) {
     .from(devices)
     .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
     .get()
-  trustState = normalizeDeviceTrustState(existingDevice?.trustState)
+  if (existingDevice) {
+    trustState = normalizeDeviceTrustState(existingDevice.trustState)
+  }
+  else {
+    // New device — trust automatically only if user has no devices AND no cross-signing keys
+    const anyDevice = db.select({ id: devices.id }).from(devices).where(eq(devices.userId, userId)).limit(1).get()
+    const hasCrossSigningKeys = !anyDevice && !!db.select({ userId: accountDataCrossSigning.userId })
+      .from(accountDataCrossSigning)
+      .where(and(eq(accountDataCrossSigning.userId, userId), eq(accountDataCrossSigning.keyType, 'master')))
+      .get()
+    trustState = !anyDevice && !hasCrossSigningKeys ? 'trusted' : 'unverified'
+  }
 
   // Check account exists and is active
   const account = db.select().from(accounts).where(eq(accounts.id, userId)).get()
@@ -147,7 +158,7 @@ export async function authMiddleware(c: Context, next: Next) {
       userId,
       id: deviceId,
       trustState,
-      trustReason: trustState === 'trusted' ? 'legacy_backfill' : 'new_login_unverified',
+      trustReason: trustState === 'trusted' ? (existingDevice ? 'legacy_backfill' : 'first_device') : 'new_login_unverified',
       ipAddress: c.req.header('x-forwarded-for') || null,
       lastSeenAt: new Date(),
     }).onConflictDoUpdate({
