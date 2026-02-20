@@ -1,9 +1,8 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
 import { Hono } from 'hono'
 import { z } from 'zod/v4'
-import { waitForNotification } from '@/modules/sync/notifier'
+import { longPoll } from '@/modules/sync/longPoll'
 import { buildSlidingSyncResponse, hasSlidingSyncChanges } from '@/modules/sync/slidingService'
-import { decSyncConnections, incSyncConnections } from '@/shared/metrics'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
 
@@ -60,35 +59,16 @@ slidingSyncRoute.post('/sync', async (c) => {
     }
 
     const requestBody = parsed.data
+    const buildArgs = [auth.userId, auth.deviceId, auth.trustState === 'trusted', requestBody, pos] as const
 
-    // Build initial response
-    let response = buildSlidingSyncResponse(
-      auth.userId,
-      auth.deviceId,
-      auth.trustState === 'trusted',
-      requestBody,
-      pos,
-    )
-
-    // Long-poll: if incremental sync has no changes and timeout > 0, wait
-    if (pos && timeout > 0 && !hasSlidingSyncChanges(response)) {
-      incSyncConnections()
-      try {
-        const notified = await waitForNotification(auth.userId, timeout)
-        if (notified) {
-          response = buildSlidingSyncResponse(
-            auth.userId,
-            auth.deviceId,
-            auth.trustState === 'trusted',
-            requestBody,
-            pos,
-          )
-        }
-      }
-      finally {
-        decSyncConnections()
-      }
-    }
+    const response = (pos && timeout > 0)
+      ? await longPoll({
+        userId: auth.userId,
+        timeout,
+        buildResponse: () => buildSlidingSyncResponse(...buildArgs),
+        hasChanges: hasSlidingSyncChanges,
+      })
+      : buildSlidingSyncResponse(...buildArgs)
 
     return c.json(response)
   }

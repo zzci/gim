@@ -32,7 +32,8 @@ try {
 }
 catch (err: any) {
   // Ignore "already exists" errors from parallel startup; rethrow everything else
-  if (!String(err?.message).includes('already exists')) {
+  const msg = String(err?.message) + String(err?.cause?.message ?? '')
+  if (!msg.includes('already exists')) {
     throw err
   }
 }

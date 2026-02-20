@@ -1,16 +1,9 @@
-import { and, asc, count, eq, gt, lte } from 'drizzle-orm'
-import { db, sqlite } from '@/db'
-import {
-  accountData,
-  devices,
-  e2eeDeviceListChanges,
-  e2eeFallbackKeys,
-  e2eeOneTimeKeys,
-  e2eeToDeviceMessages,
-} from '@/db/schema'
+import { sqlite } from '@/db'
 import { getMaxEventId, queryRoomEvents } from '@/shared/helpers/eventQueries'
 import { formatEvent, formatEventListWithRelations } from '@/shared/helpers/formatEvent'
-import { isAccountDataAllowedForUnverified, isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
+import { collectGlobalAccountData } from './collectors/accountData'
+import { collectDeviceListChanges, collectE2eeKeyCounts } from './collectors/deviceLists'
+import { collectToDeviceMessages } from './collectors/toDevice'
 
 interface SlidingSyncList {
   ranges: [number, number][]
@@ -306,133 +299,6 @@ function buildRoomResponse(
   }
 }
 
-function processToDevice(userId: string, deviceId: string, isTrustedDevice: boolean, since?: string): { events: any[], next_batch: string } {
-  return db.transaction((tx) => {
-    const device = tx.select({ lastToDeviceStreamId: devices.lastToDeviceStreamId })
-      .from(devices)
-      .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
-      .get()
-
-    const lastDeliveredId = device?.lastToDeviceStreamId ?? 0
-
-    // If incremental sync, delete previously delivered messages
-    if (since && lastDeliveredId > 0) {
-      tx.delete(e2eeToDeviceMessages)
-        .where(and(
-          eq(e2eeToDeviceMessages.userId, userId),
-          eq(e2eeToDeviceMessages.deviceId, deviceId),
-          lte(e2eeToDeviceMessages.id, lastDeliveredId),
-        ))
-        .run()
-    }
-
-    // Fetch pending to-device messages
-    const msgs = tx.select().from(e2eeToDeviceMessages).where(and(
-      eq(e2eeToDeviceMessages.userId, userId),
-      eq(e2eeToDeviceMessages.deviceId, deviceId),
-      gt(e2eeToDeviceMessages.id, lastDeliveredId),
-    )).orderBy(asc(e2eeToDeviceMessages.id)).all()
-
-    const visibleMsgs = isTrustedDevice ? msgs : msgs.filter(m => isVerificationToDeviceType(m.type))
-
-    const events = visibleMsgs.map(m => ({
-      type: m.type,
-      sender: m.sender,
-      content: m.content,
-    }))
-
-    // Track max delivered id — use visible (filtered) list only so that
-    // non-verification messages arriving during trust transition are not skipped.
-    if (visibleMsgs.length > 0) {
-      const maxId = visibleMsgs[visibleMsgs.length - 1]!.id
-      tx.update(devices)
-        .set({ lastToDeviceStreamId: maxId })
-        .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
-        .run()
-    }
-
-    const nextBatch = visibleMsgs.length > 0
-      ? String(visibleMsgs[visibleMsgs.length - 1]!.id)
-      : (since || '0')
-
-    return { events, next_batch: nextBatch }
-  })
-}
-
-function processE2ee(userId: string, deviceId: string, isTrustedDevice: boolean, since?: string): { data: Record<string, any>, maxDeviceListUlid: string } {
-  const otkResult = db.select({ cnt: count() }).from(e2eeOneTimeKeys).where(and(
-    eq(e2eeOneTimeKeys.userId, userId),
-    eq(e2eeOneTimeKeys.deviceId, deviceId),
-    eq(e2eeOneTimeKeys.claimed, false),
-  )).get()
-
-  const fallbackTypes = db.select({ algorithm: e2eeFallbackKeys.algorithm })
-    .from(e2eeFallbackKeys)
-    .where(and(
-      eq(e2eeFallbackKeys.userId, userId),
-      eq(e2eeFallbackKeys.deviceId, deviceId),
-    ))
-    .all()
-    .map(r => r.algorithm)
-
-  // Device list changes (users whose keys changed since last sync)
-  let changedUsers: string[] = []
-  let maxDeviceListUlid = ''
-  if (since) {
-    const changeConditions = [gt(e2eeDeviceListChanges.ulid, since)]
-    if (!isTrustedDevice) {
-      changeConditions.push(eq(e2eeDeviceListChanges.userId, userId))
-    }
-    const changes = db.select({
-      userId: e2eeDeviceListChanges.userId,
-      ulid: e2eeDeviceListChanges.ulid,
-    }).from(e2eeDeviceListChanges).where(and(...changeConditions)).all()
-    changedUsers = [...new Set(changes.map(c => c.userId))]
-    if (changes.length > 0) {
-      maxDeviceListUlid = changes.reduce((max, c) => c.ulid > max ? c.ulid : max, '')
-    }
-  }
-
-  return {
-    data: {
-      device_one_time_keys_count: {
-        signed_curve25519: otkResult?.cnt ?? 0,
-      },
-      device_unused_fallback_key_types: fallbackTypes,
-      device_lists: {
-        changed: changedUsers,
-        left: [],
-      },
-    },
-    maxDeviceListUlid,
-  }
-}
-
-function processAccountData(userId: string, isTrustedDevice: boolean, since?: string): Record<string, any> {
-  const BACKUP_DISABLED_TYPE = 'm.org.matrix.custom.backup_disabled'
-
-  const conditions = [
-    eq(accountData.userId, userId),
-    eq(accountData.roomId, ''),
-  ]
-  if (since) {
-    conditions.push(gt(accountData.streamId, since))
-  }
-  const rows = db.select().from(accountData).where(and(...conditions)).all()
-  const globalData = rows
-    .filter(d => isTrustedDevice || isAccountDataAllowedForUnverified(d.type))
-    .map(d => ({ type: d.type, content: d.content }))
-
-  // Always include backup_disabled on initial sync so clients know recovery is not needed
-  if (!since && !globalData.some((d: any) => d.type === BACKUP_DISABLED_TYPE)) {
-    globalData.push({ type: BACKUP_DISABLED_TYPE, content: { disabled: true } })
-  }
-
-  return {
-    global: globalData,
-  }
-}
-
 function hasRoomChanges(roomId: string, since: string): boolean {
   const row = sqlite.prepare(`
     SELECT 1 FROM (
@@ -535,22 +401,42 @@ export function buildSlidingSyncResponse(
     )
   }
 
-  // Extensions
+  // Extensions — use shared collectors
   const extensions: Record<string, any> = {}
 
   if (body.extensions?.to_device?.enabled) {
-    extensions.to_device = processToDevice(userId, deviceId, isTrustedDevice, body.extensions.to_device.since)
+    const toDeviceSince = body.extensions.to_device.since
+    const result = collectToDeviceMessages(userId, deviceId, isTrustedDevice, !!toDeviceSince)
+    extensions.to_device = {
+      events: result.events,
+      next_batch: result.maxDeliveredId > 0
+        ? String(result.maxDeliveredId)
+        : (toDeviceSince || '0'),
+    }
   }
 
   let maxDeviceListUlid = ''
   if (body.extensions?.e2ee?.enabled) {
-    const e2ee = processE2ee(userId, deviceId, isTrustedDevice, since)
-    extensions.e2ee = e2ee.data
-    maxDeviceListUlid = e2ee.maxDeviceListUlid
+    const deviceLists = collectDeviceListChanges(userId, isTrustedDevice, since || null)
+    const keyCounts = collectE2eeKeyCounts(userId, deviceId)
+    maxDeviceListUlid = deviceLists.maxUlid
+    extensions.e2ee = {
+      device_one_time_keys_count: {
+        signed_curve25519: keyCounts.otkCount,
+      },
+      device_unused_fallback_key_types: keyCounts.fallbackKeyAlgorithms,
+      device_lists: {
+        changed: deviceLists.changed,
+        left: deviceLists.left,
+      },
+    }
   }
 
   if (body.extensions?.account_data?.enabled) {
-    extensions.account_data = processAccountData(userId, isTrustedDevice, since)
+    const result = collectGlobalAccountData(userId, isTrustedDevice, since || null)
+    extensions.account_data = {
+      global: result.events,
+    }
   }
 
   // Position token — advance past all streams so incremental sync doesn't re-deliver

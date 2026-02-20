@@ -1,9 +1,9 @@
 import type { AuthEnv } from '@/shared/middleware/auth'
 import { Hono } from 'hono'
 import { touchPresence } from '@/modules/presence/service'
-import { waitForNotification } from '@/modules/sync/notifier'
-import { buildSyncResponse, getDeviceLastSyncBatch } from '@/modules/sync/service'
-import { decSyncConnections, incSyncConnections } from '@/shared/metrics'
+import { getDeviceLastSyncBatch } from '@/modules/sync/collectors/position'
+import { longPoll } from '@/modules/sync/longPoll'
+import { buildSyncResponse } from '@/modules/sync/service'
 import { authMiddleware } from '@/shared/middleware/auth'
 
 export const syncRoute = new Hono<AuthEnv>()
@@ -39,28 +39,19 @@ syncRoute.get('/', async (c) => {
       setPresence: setPresence || undefined,
     }
 
-    let response = buildSyncResponse(syncOpts)
-
-    if (since && timeout > 0) {
-      const hasChanges = Object.keys(response.rooms.join).length > 0
-        || Object.keys(response.rooms.invite).length > 0
-        || Object.keys(response.rooms.leave).length > 0
-        || response.to_device.events.length > 0
-        || response.device_lists.changed.length > 0
-
-      if (!hasChanges) {
-        incSyncConnections()
-        try {
-          const notified = await waitForNotification(auth.userId, timeout)
-          if (notified) {
-            response = buildSyncResponse(syncOpts)
-          }
-        }
-        finally {
-          decSyncConnections()
-        }
-      }
-    }
+    const response = (since && timeout > 0)
+      ? await longPoll({
+        userId: auth.userId,
+        timeout,
+        buildResponse: () => buildSyncResponse(syncOpts),
+        hasChanges: r =>
+          Object.keys(r.rooms.join).length > 0
+          || Object.keys(r.rooms.invite).length > 0
+          || Object.keys(r.rooms.leave).length > 0
+          || r.to_device.events.length > 0
+          || r.device_lists.changed.length > 0,
+      })
+      : buildSyncResponse(syncOpts)
 
     return c.json(response)
   }
