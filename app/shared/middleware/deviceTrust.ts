@@ -69,12 +69,19 @@ export function isPathAllowedForUnverifiedDevice(path: string, method: string): 
       return true
   }
 
-  // Account data: only cross-signing types, only under /user/ path
-  const adMarker = '/account_data/'
-  const adIdx = p.indexOf(adMarker)
-  if (adIdx >= 0 && p.startsWith('/_matrix/client/v3/user/')) {
-    const type = decodeURIComponent(p.slice(adIdx + adMarker.length))
-    return isAccountDataAllowedForUnverified(type)
+  // User routes: filter + cross-signing account data only
+  if (p.startsWith('/_matrix/client/v3/user/')) {
+    // Filter: clients create filters before sync
+    if (p.includes('/filter'))
+      return true
+
+    // Account data: only cross-signing types
+    const adMarker = '/account_data/'
+    const adIdx = p.indexOf(adMarker)
+    if (adIdx >= 0) {
+      const type = decodeURIComponent(p.slice(adIdx + adMarker.length))
+      return isAccountDataAllowedForUnverified(type)
+    }
   }
 
   return false
