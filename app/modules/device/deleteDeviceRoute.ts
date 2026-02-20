@@ -13,16 +13,18 @@ deviceDeleteRoute.delete('/:deviceId', async (c) => {
   const deviceId = c.req.param('deviceId')
 
   db.transaction((tx) => {
+    // Scope OAuth token deletion to the authenticated user's account
+    const localpart = auth.userId.split(':')[0]!.slice(1)
     const tokenRows = tx.select({ grantId: oauthTokens.grantId })
       .from(oauthTokens)
-      .where(eq(oauthTokens.deviceId, deviceId))
+      .where(and(eq(oauthTokens.deviceId, deviceId), eq(oauthTokens.accountId, localpart)))
       .all()
 
     const grantIds = new Set(tokenRows.map(r => r.grantId).filter(Boolean) as string[])
     for (const grantId of grantIds) {
       tx.delete(oauthTokens).where(eq(oauthTokens.grantId, grantId)).run()
     }
-    tx.delete(oauthTokens).where(eq(oauthTokens.deviceId, deviceId)).run()
+    tx.delete(oauthTokens).where(and(eq(oauthTokens.deviceId, deviceId), eq(oauthTokens.accountId, localpart))).run()
 
     tx.delete(e2eeDeviceKeys).where(and(
       eq(e2eeDeviceKeys.userId, auth.userId),

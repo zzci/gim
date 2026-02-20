@@ -36,7 +36,7 @@ export async function sendPushNotification(
   // Block SSRF: reject private/internal hostnames
   try {
     const parsed = new URL(url)
-    if (/^(?:localhost|127\.\d|10\.\d|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|0\.0\.0\.0|\[::1\])/i.test(parsed.hostname)) {
+    if (/^(?:localhost|127\.\d|10\.\d|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|0\.0\.0\.0|0\.|\[?::1\]?|\[?fe80:|\[?fc00:|\[?fd|169\.254\.)/i.test(parsed.hostname)) {
       logger.warn('push_blocked_private_url', { url, pusherId: pusher.id })
       return
     }

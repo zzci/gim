@@ -521,6 +521,10 @@ oauthApp.get('/me', (c) => {
     return c.json({ error: 'invalid_token' }, 401)
   }
 
+  if (row.consumedAt) {
+    return c.json({ error: 'invalid_token' }, 401)
+  }
+
   const userId = row.accountId?.startsWith('@') ? row.accountId : `@${row.accountId}:${serverName}`
   const account = db.select()
     .from(accounts)

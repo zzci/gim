@@ -243,7 +243,7 @@ keysUploadRoute.post('/', async (c) => {
         algorithm,
         keyId,
         keyJson: typeof keyData === 'string' ? { key: keyData } : (keyData as Record<string, unknown>),
-      })
+      }).onConflictDoNothing()
     }
 
     let shouldNotify = false

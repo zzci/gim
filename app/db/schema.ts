@@ -1,6 +1,6 @@
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 import { generateUlid } from '@/utils/tokens'
 
 // ======== Accounts ========
@@ -162,6 +162,7 @@ export const currentRoomState = sqliteTable('current_room_state', {
   eventId: text('event_id').notNull().references((): AnySQLiteColumn => eventsState.id),
 }, table => [
   primaryKey({ columns: [table.roomId, table.type, table.stateKey] }),
+  index('current_room_state_room_type_idx').on(table.roomId, table.type),
 ])
 
 // ======== E2EE ========
@@ -187,6 +188,7 @@ export const e2eeOneTimeKeys = sqliteTable('e2ee_one_time_keys', {
   claimed: integer('claimed', { mode: 'boolean' }).notNull().default(false),
 }, table => [
   index('e2ee_otk_user_device_claimed_idx').on(table.userId, table.deviceId, table.claimed),
+  unique('e2ee_otk_unique_key').on(table.userId, table.deviceId, table.algorithm, table.keyId),
 ])
 
 export const e2eeFallbackKeys = sqliteTable('e2ee_fallback_keys', {
@@ -347,7 +349,9 @@ export const presence = sqliteTable('presence', {
   state: text('state').notNull().default('offline'), // online, unavailable, offline
   statusMsg: text('status_msg'),
   lastActiveAt: integer('last_active_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
-})
+}, table => [
+  index('presence_state_last_active_idx').on(table.state, table.lastActiveAt),
+])
 
 // ======== Application Services ========
 
