@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq } from 'drizzle-orm'
+import { requireEncryption } from '@/config'
 import { db } from '@/db'
 import { currentRoomState, eventsState } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
@@ -116,6 +117,20 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
     const requiredLevel = eventsMap[eventType] ?? (powerLevels.state_default as number) ?? 50
     if (userPower < requiredLevel)
       return matrixForbidden(c, 'Insufficient power level')
+
+    // Prevent disabling encryption when requireEncryption is on
+    if (requireEncryption && eventType === 'm.room.encryption') {
+      const existing = db.select({ eventId: currentRoomState.eventId })
+        .from(currentRoomState)
+        .where(and(
+          eq(currentRoomState.roomId, roomId),
+          eq(currentRoomState.type, 'm.room.encryption'),
+          eq(currentRoomState.stateKey, ''),
+        ))
+        .get()
+      if (existing)
+        return matrixForbidden(c, 'Cannot modify encryption settings')
+    }
 
     // Extra validation for m.room.power_levels changes
     if (eventType === 'm.room.power_levels') {

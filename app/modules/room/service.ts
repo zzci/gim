@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm'
+import { requireEncryption } from '@/config'
 import { db } from '@/db'
 import { currentRoomState, eventsState, roomAliases, roomMembers, rooms } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
@@ -180,7 +181,19 @@ export function createRoom(opts: CreateRoomOptions): string {
     }
   }
 
-  // 10. Invite users
+  // 10. Force encryption if not already set by initial_state
+  const hasEncryption = opts.initialState?.some(e => e.type === 'm.room.encryption')
+  if (requireEncryption && !hasEncryption) {
+    createEvent({
+      roomId,
+      sender: opts.creatorId,
+      type: 'm.room.encryption',
+      stateKey: '',
+      content: { algorithm: 'm.megolm.v1.aes-sha2' },
+    })
+  }
+
+  // 11. Invite users
   if (opts.invite) {
     for (const userId of opts.invite) {
       createEvent({

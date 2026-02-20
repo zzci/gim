@@ -56,6 +56,7 @@ const s3SecretAccessKey = process.env.S3_SECRET_ACCESS_KEY || ''
 const s3Region = process.env.S3_REGION || 'auto'
 const s3PublicUrl = process.env.S3_PUBLIC_URL || ''
 const e2eeKeyBackupEnabled = ['1', 'true', 'yes', 'on'].includes((process.env.IM_E2EE_KEY_BACKUP_ENABLED || '').trim().toLowerCase())
+const requireEncryption = (process.env.IM_REQUIRE_ENCRYPTION || 'true').trim().toLowerCase() === 'true'
 
 export const version = '0.4.0'
 
@@ -82,4 +83,4 @@ function loadBuildInfo(): BuildInfo {
 export const buildInfo = loadBuildInfo()
 export const poweredBy = 'gim'
 
-export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, e2eeKeyBackupEnabled, listenHost, listenPort, livekitServiceUrl, logFormat, logLevel, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }
+export { asRegistrationDir, cacheDriver, cookieSecret, corsOrigins, e2eeKeyBackupEnabled, listenHost, listenPort, livekitServiceUrl, logFormat, logLevel, maxRoomMembers, maxRoomsPerUser, mediaQuotaMb, mediaUploadsPerHour, pushGatewayUrl, requireEncryption, s3AccessKeyId, s3AccountId, s3Bucket, s3PublicUrl, s3Region, s3SecretAccessKey, serverName, turnSharedSecret, turnTtl, turnUris, upstreamClientId, upstreamClientSecret, upstreamIssuer }
