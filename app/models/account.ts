@@ -1,19 +1,16 @@
 import { eq } from 'drizzle-orm'
+import { cacheDel, cacheGet, cacheSet } from '@/cache'
 import { db } from '@/db'
 import { accounts } from '@/db/schema'
-import { TtlCache } from '@/utils/ttlCache'
 
-const ACCOUNT_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
-
-const deactivatedCache = new TtlCache<boolean>(ACCOUNT_CACHE_TTL)
-const displayNameCache = new TtlCache<string | null>(ACCOUNT_CACHE_TTL)
+const ACCOUNT_CACHE_TTL = 300 // 5 minutes in seconds
 
 export type AccountRow = typeof accounts.$inferSelect
 
 /** Check if an account is deactivated (cached, 5min TTL). */
-export function isDeactivated(userId: string): boolean {
-  const cached = deactivatedCache.get(userId)
-  if (cached !== undefined)
+export async function isDeactivated(userId: string): Promise<boolean> {
+  const cached = await cacheGet<boolean>(`m:ad:${userId}`)
+  if (cached !== null)
     return cached
 
   const account = db.select({ isDeactivated: accounts.isDeactivated })
@@ -21,14 +18,15 @@ export function isDeactivated(userId: string): boolean {
     .where(eq(accounts.id, userId))
     .get()
   const result = !!account?.isDeactivated
-  deactivatedCache.set(userId, result)
+  await cacheSet(`m:ad:${userId}`, result, { ttl: ACCOUNT_CACHE_TTL })
   return result
 }
 
 /** Get a user's display name (cached, 5min TTL). */
-export function getDisplayName(userId: string): string | null {
-  const cached = displayNameCache.get(userId)
-  if (cached !== undefined)
+export async function getDisplayName(userId: string): Promise<string | null> {
+  const cacheKey = `m:dn:${userId}`
+  const cached = await cacheGet<string | null>(cacheKey)
+  if (cached !== null)
     return cached
 
   const account = db.select({ displayname: accounts.displayname })
@@ -36,7 +34,9 @@ export function getDisplayName(userId: string): string | null {
     .where(eq(accounts.id, userId))
     .get()
   const name = account?.displayname ?? null
-  displayNameCache.set(userId, name)
+  if (name !== null) {
+    await cacheSet(cacheKey, name, { ttl: ACCOUNT_CACHE_TTL })
+  }
   return name
 }
 
@@ -46,11 +46,11 @@ export function getAccount(userId: string): AccountRow | undefined {
 }
 
 /** Invalidate cached deactivation status for a user. */
-export function invalidateDeactivatedCache(userId: string): void {
-  deactivatedCache.invalidate(userId)
+export async function invalidateDeactivatedCache(userId: string): Promise<void> {
+  await cacheDel(`m:ad:${userId}`)
 }
 
 /** Invalidate cached display name for a user. */
-export function invalidateDisplayNameCache(userId: string): void {
-  displayNameCache.invalidate(userId)
+export async function invalidateDisplayNameCache(userId: string): Promise<void> {
+  await cacheDel(`m:dn:${userId}`)
 }

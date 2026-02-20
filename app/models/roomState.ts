@@ -1,16 +1,17 @@
 import { and, eq, inArray } from 'drizzle-orm'
+import { cacheDel, cacheDelPrefix, cacheGet, cacheSet } from '@/cache'
 import { db } from '@/db'
 import { currentRoomState, eventsState } from '@/db/schema'
-import { TtlCache } from '@/utils/ttlCache'
 
-const stateContentCache = new TtlCache<Record<string, unknown> | null>(60_000)
+const STATE_CACHE_TTL = 60 // 60 seconds
 
 /** Read a single state event's content for a room (cached, 60s TTL). */
-export function getStateContent(roomId: string, type: string, stateKey = ''): Record<string, unknown> | null {
-  const cacheKey = `rs:${roomId}:${type}:${stateKey}`
-  const cached = stateContentCache.get(cacheKey)
-  if (cached !== undefined)
-    return cached
+export async function getStateContent(roomId: string, type: string, stateKey = ''): Promise<Record<string, unknown> | null> {
+  const cacheKey = `m:rs:${roomId}:${type}:${stateKey}`
+  const cached = await cacheGet<Record<string, unknown> | '__null__'>(cacheKey)
+  if (cached !== null) {
+    return cached === '__null__' ? null : cached
+  }
 
   const row = db.select({ eventId: currentRoomState.eventId })
     .from(currentRoomState)
@@ -21,7 +22,7 @@ export function getStateContent(roomId: string, type: string, stateKey = ''): Re
     ))
     .get()
   if (!row) {
-    stateContentCache.set(cacheKey, null)
+    await cacheSet(cacheKey, '__null__', { ttl: STATE_CACHE_TTL })
     return null
   }
   const event = db.select({ content: eventsState.content })
@@ -29,18 +30,18 @@ export function getStateContent(roomId: string, type: string, stateKey = ''): Re
     .where(eq(eventsState.id, row.eventId))
     .get()
   const result = (event?.content as Record<string, unknown>) ?? null
-  stateContentCache.set(cacheKey, result)
+  await cacheSet(cacheKey, result ?? '__null__', { ttl: STATE_CACHE_TTL })
   return result
 }
 
 /** Get power levels content for a room. Returns {} if no power_levels event exists. */
-export function getPowerLevelsContent(roomId: string): Record<string, unknown> {
-  return getStateContent(roomId, 'm.room.power_levels', '') ?? {}
+export async function getPowerLevelsContent(roomId: string): Promise<Record<string, unknown>> {
+  return await getStateContent(roomId, 'm.room.power_levels', '') ?? {}
 }
 
 /** Get a user's power level in a room. */
-export function getUserPowerLevel(roomId: string, userId: string): number {
-  const content = getStateContent(roomId, 'm.room.power_levels', '')
+export async function getUserPowerLevel(roomId: string, userId: string): Promise<number> {
+  const content = await getStateContent(roomId, 'm.room.power_levels', '')
   if (!content)
     return 0
 
@@ -52,8 +53,8 @@ export function getUserPowerLevel(roomId: string, userId: string): number {
 }
 
 /** Get the required power level for an action (invite, kick, ban, redact, state_default, etc.). */
-export function getActionPowerLevel(roomId: string, action: string): number {
-  const content = getStateContent(roomId, 'm.room.power_levels', '')
+export async function getActionPowerLevel(roomId: string, action: string): Promise<number> {
+  const content = await getStateContent(roomId, 'm.room.power_levels', '')
   if (!content)
     return 50
 
@@ -61,8 +62,8 @@ export function getActionPowerLevel(roomId: string, action: string): number {
 }
 
 /** Get the join rule for a room. */
-export function getJoinRule(roomId: string): string {
-  const content = getStateContent(roomId, 'm.room.join_rules', '')
+export async function getJoinRule(roomId: string): Promise<string> {
+  const content = await getStateContent(roomId, 'm.room.join_rules', '')
   return (content?.join_rule as string) ?? 'invite'
 }
 
@@ -83,11 +84,11 @@ export function getStateEventsByIds(eventIds: string[]): Array<typeof eventsStat
 }
 
 /** Invalidate cached state content for a room. */
-export function invalidateStateContent(roomId: string, type?: string, stateKey?: string): void {
+export async function invalidateStateContent(roomId: string, type?: string, stateKey?: string): Promise<void> {
   if (type !== undefined && stateKey !== undefined) {
-    stateContentCache.invalidate(`rs:${roomId}:${type}:${stateKey}`)
+    await cacheDel(`m:rs:${roomId}:${type}:${stateKey}`)
   }
   else {
-    stateContentCache.invalidatePrefix(`rs:${roomId}:`)
+    await cacheDelPrefix(`m:rs:${roomId}:`)
   }
 }

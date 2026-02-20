@@ -24,10 +24,6 @@ interface PushCondition {
   is?: string
 }
 
-// Re-exports for backwards compatibility
-export { invalidateMemberCount as invalidateMemberCountCache } from '@/models/roomMembership'
-export { invalidateStateContent as invalidatePowerLevelCache } from '@/models/roomState'
-
 export function getDefaultPushRules(userId: string) {
   const localpart = userId.split(':')[0]?.slice(1) || ''
 
@@ -269,15 +265,15 @@ function globToRegex(pattern: string): RegExp {
   return new RegExp(`^${regex}$`, 'i')
 }
 
-function getNotificationPowerLevel(roomId: string): number {
-  const content = getStateContent(roomId, 'm.room.power_levels', '')
+async function getNotificationPowerLevel(roomId: string): Promise<number> {
+  const content = await getStateContent(roomId, 'm.room.power_levels', '')
   if (!content)
     return 50
   const notifs = content.notifications as Record<string, number> | undefined
   return notifs?.room ?? 50
 }
 
-function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: string, userId: string): boolean {
+async function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: string, userId: string): Promise<boolean> {
   switch (condition.kind) {
     case 'event_match': {
       if (!condition.key || condition.pattern === undefined)
@@ -292,7 +288,7 @@ function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: st
     case 'room_member_count': {
       if (!condition.is)
         return false
-      const memberCount = getJoinedMemberCount(roomId)
+      const memberCount = await getJoinedMemberCount(roomId)
       const match = condition.is.match(/^(==|<|<=|>|>=)?(\d+)$/)
       if (!match)
         return false
@@ -309,7 +305,7 @@ function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: st
     }
 
     case 'contains_display_name': {
-      const displayname = getDisplayName(userId)
+      const displayname = await getDisplayName(userId)
       if (!displayname)
         return false
       const body = (event.content as Record<string, unknown>).body
@@ -328,8 +324,8 @@ function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: st
     }
 
     case 'sender_notification_permission': {
-      const requiredLevel = getNotificationPowerLevel(roomId)
-      const senderLevel = getUserPowerLevel(roomId, event.sender)
+      const requiredLevel = await getNotificationPowerLevel(roomId)
+      const senderLevel = await getUserPowerLevel(roomId, event.sender)
       return senderLevel >= requiredLevel
     }
 
@@ -338,7 +334,7 @@ function matchCondition(condition: PushCondition, event: MatrixEvent, roomId: st
   }
 }
 
-export function evaluatePushRules(event: MatrixEvent, roomId: string, userId: string): unknown[] | null {
+export async function evaluatePushRules(event: MatrixEvent, roomId: string, userId: string): Promise<unknown[] | null> {
   // Never notify yourself
   if (event.sender === userId)
     return null
@@ -369,7 +365,13 @@ export function evaluatePushRules(event: MatrixEvent, roomId: string, userId: st
 
     // Condition-based rules
     if (rule.conditions) {
-      const allMatch = rule.conditions.every(c => matchCondition(c, event, roomId, userId))
+      let allMatch = true
+      for (const cond of rule.conditions) {
+        if (!await matchCondition(cond, event, roomId, userId)) {
+          allMatch = false
+          break
+        }
+      }
       if (!allMatch)
         continue
       return rule.actions
@@ -379,7 +381,7 @@ export function evaluatePushRules(event: MatrixEvent, roomId: string, userId: st
   return null
 }
 
-export function recordNotifications(event: MatrixEvent, roomId: string): void {
+export async function recordNotifications(event: MatrixEvent, roomId: string): Promise<void> {
   const members = db.select({ userId: roomMembers.userId })
     .from(roomMembers)
     .where(and(
@@ -400,7 +402,7 @@ export function recordNotifications(event: MatrixEvent, roomId: string): void {
     if (member.userId === event.sender)
       continue
 
-    const actions = evaluatePushRules(event, roomId, member.userId)
+    const actions = await evaluatePushRules(event, roomId, member.userId)
     if (!actions || !actions.includes('notify'))
       continue
 

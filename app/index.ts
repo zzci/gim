@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { cors } from 'hono/cors'
 import { inspectRoutes } from 'hono/dev'
+import { closeCache } from '@/cache'
 import { startCron } from '@/cron'
 import { sqlite } from '@/db'
 import { accountDataRoute, accountTokensRoute, deactivateRoute, profileRoute, pushRulesRoute, userFilterRoute, whoamiRoute } from '@/modules/account'
@@ -232,6 +233,7 @@ async function run() {
     stopCron()
     flushAccountTokenLastUsedAt()
     http.stop()
+    await closeCache()
     sqlite.close()
     logger.info('server_stopped')
     process.exit(0)

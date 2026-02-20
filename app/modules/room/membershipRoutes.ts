@@ -4,9 +4,10 @@ import { Hono } from 'hono'
 import { maxRoomMembers, maxRoomsPerUser } from '@/config'
 import { db } from '@/db'
 import { eventsState, roomAliases, roomMembers, rooms } from '@/db/schema'
+import { getActionPowerLevel, getJoinRule, getUserPowerLevel } from '@/models/roomState'
 import { createEvent } from '@/modules/message/service'
 import { checkRoomMemberLimit, checkUserRoomLimit } from '@/modules/room/limits'
-import { getActionPowerLevel, getRoomJoinRule, getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
+import { getRoomMembership } from '@/modules/room/service'
 import { getRoomId } from '@/modules/room/shared'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError, matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
@@ -25,25 +26,25 @@ roomMembershipRouter.post('/:roomId/join', async (c) => {
   if (!room)
     return matrixNotFound(c, 'Room not found')
 
-  const membership = getRoomMembership(roomId, auth.userId)
+  const membership = await getRoomMembership(roomId, auth.userId)
   if (membership === 'join')
     return c.json({ room_id: roomId })
   if (membership === 'ban')
     return matrixForbidden(c, 'You are banned')
 
-  const joinRule = getRoomJoinRule(roomId)
+  const joinRule = await getJoinRule(roomId)
   if (joinRule === 'invite' && membership !== 'invite') {
     return matrixForbidden(c, 'You are not invited to this room')
   }
 
-  if (!checkUserRoomLimit(auth.userId)) {
+  if (!await checkUserRoomLimit(auth.userId)) {
     return matrixError(c, 'M_RESOURCE_LIMIT_EXCEEDED', `You have reached the maximum number of rooms (${maxRoomsPerUser})`)
   }
-  if (!checkRoomMemberLimit(roomId)) {
+  if (!await checkRoomMemberLimit(roomId)) {
     return matrixError(c, 'M_RESOURCE_LIMIT_EXCEEDED', `This room has reached the maximum number of members (${maxRoomMembers})`)
   }
 
-  createEvent({
+  await createEvent({
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
@@ -60,12 +61,12 @@ roomMembershipRouter.post('/:roomId/leave', async (c) => {
   const auth = c.get('auth')
   const roomId = getRoomId(c)
 
-  const membership = getRoomMembership(roomId, auth.userId)
+  const membership = await getRoomMembership(roomId, auth.userId)
   if (!membership || membership === 'leave' || membership === 'ban') {
     return matrixForbidden(c, 'Not a member of this room')
   }
 
-  createEvent({
+  await createEvent({
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
@@ -89,22 +90,22 @@ roomMembershipRouter.post('/:roomId/invite', async (c) => {
 
   const targetUserId = v.data.user_id
 
-  const senderMembership = getRoomMembership(roomId, auth.userId)
+  const senderMembership = await getRoomMembership(roomId, auth.userId)
   if (senderMembership !== 'join')
     return matrixForbidden(c, 'Not a member of this room')
 
-  const senderPower = getUserPowerLevel(roomId, auth.userId)
-  const invitePower = getActionPowerLevel(roomId, 'invite')
+  const senderPower = await getUserPowerLevel(roomId, auth.userId)
+  const invitePower = await getActionPowerLevel(roomId, 'invite')
   if (senderPower < invitePower)
     return matrixForbidden(c, 'Insufficient power level to invite')
 
-  const targetMembership = getRoomMembership(roomId, targetUserId)
+  const targetMembership = await getRoomMembership(roomId, targetUserId)
   if (targetMembership === 'join')
     return matrixError(c, 'M_UNKNOWN', 'User already in room')
   if (targetMembership === 'ban')
     return matrixForbidden(c, 'User is banned')
 
-  createEvent({
+  await createEvent({
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
@@ -125,15 +126,15 @@ roomMembershipRouter.post('/:roomId/kick', async (c) => {
   if (!vKick.success)
     return vKick.response
 
-  const senderPower = getUserPowerLevel(roomId, auth.userId)
-  const kickThreshold = getActionPowerLevel(roomId, 'kick')
+  const senderPower = await getUserPowerLevel(roomId, auth.userId)
+  const kickThreshold = await getActionPowerLevel(roomId, 'kick')
   if (senderPower < kickThreshold)
     return matrixForbidden(c, 'Insufficient power level to kick')
-  const targetPower = getUserPowerLevel(roomId, vKick.data.user_id)
+  const targetPower = await getUserPowerLevel(roomId, vKick.data.user_id)
   if (senderPower <= targetPower)
     return matrixForbidden(c, 'Cannot kick user with equal or higher power level')
 
-  createEvent({
+  await createEvent({
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
@@ -155,15 +156,15 @@ roomMembershipRouter.post('/:roomId/ban', async (c) => {
   if (!vBan.success)
     return vBan.response
 
-  const senderPower = getUserPowerLevel(roomId, auth.userId)
-  const banThreshold = getActionPowerLevel(roomId, 'ban')
+  const senderPower = await getUserPowerLevel(roomId, auth.userId)
+  const banThreshold = await getActionPowerLevel(roomId, 'ban')
   if (senderPower < banThreshold)
     return matrixForbidden(c, 'Insufficient power level to ban')
-  const targetPower = getUserPowerLevel(roomId, vBan.data.user_id)
+  const targetPower = await getUserPowerLevel(roomId, vBan.data.user_id)
   if (senderPower <= targetPower)
     return matrixForbidden(c, 'Cannot ban user with equal or higher power level')
 
-  createEvent({
+  await createEvent({
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
@@ -185,23 +186,23 @@ roomMembershipRouter.post('/:roomId/unban', async (c) => {
   if (!vUnban.success)
     return vUnban.response
 
-  const senderMembership = getRoomMembership(roomId, auth.userId)
+  const senderMembership = await getRoomMembership(roomId, auth.userId)
   if (senderMembership !== 'join')
     return matrixForbidden(c, 'Not a member of this room')
 
-  const senderPower = getUserPowerLevel(roomId, auth.userId)
-  const banThreshold = getActionPowerLevel(roomId, 'ban')
+  const senderPower = await getUserPowerLevel(roomId, auth.userId)
+  const banThreshold = await getActionPowerLevel(roomId, 'ban')
   if (senderPower < banThreshold)
     return matrixForbidden(c, 'Insufficient power level to unban')
-  const targetPower = getUserPowerLevel(roomId, vUnban.data.user_id)
+  const targetPower = await getUserPowerLevel(roomId, vUnban.data.user_id)
   if (senderPower <= targetPower)
     return matrixForbidden(c, 'Cannot unban user with equal or higher power level')
 
-  const membership = getRoomMembership(roomId, vUnban.data.user_id)
+  const membership = await getRoomMembership(roomId, vUnban.data.user_id)
   if (membership !== 'ban')
     return matrixError(c, 'M_UNKNOWN', 'User is not banned')
 
-  createEvent({
+  await createEvent({
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
@@ -218,7 +219,7 @@ roomMembershipRouter.get('/:roomId/members', async (c) => {
   const roomId = getRoomId(c)
   const membershipFilter = c.req.query('membership')
 
-  const userMembership = getRoomMembership(roomId, auth.userId)
+  const userMembership = await getRoomMembership(roomId, auth.userId)
   if (userMembership !== 'join' && userMembership !== 'invite') {
     return matrixForbidden(c, 'Not a member of this room')
   }
@@ -246,11 +247,11 @@ roomMembershipRouter.get('/:roomId/members', async (c) => {
 })
 
 // GET /:roomId/aliases — List room aliases
-roomMembershipRouter.get('/:roomId/aliases', (c) => {
+roomMembershipRouter.get('/:roomId/aliases', async (c) => {
   const auth = c.get('auth')
   const roomId = getRoomId(c)
 
-  const membership = getRoomMembership(roomId, auth.userId)
+  const membership = await getRoomMembership(roomId, auth.userId)
   if (membership !== 'join')
     return matrixForbidden(c, 'Not a member of this room')
 

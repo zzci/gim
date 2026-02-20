@@ -7,12 +7,7 @@ import { getStateContent } from '@/models/roomState'
 import { createEvent } from '@/modules/message/service'
 import { generateRoomId } from '@/utils/tokens'
 
-// Re-exports for backwards compatibility
-export { invalidateMembership as invalidateRoomMembershipCache } from '@/models/roomMembership'
-export { getActionPowerLevel, getUserPowerLevel, invalidateStateContent as invalidateRoomStateCache } from '@/models/roomState'
-export { getJoinRule as getRoomJoinRule } from '@/models/roomState'
-
-export function getRoomMembership(roomId: string, userId: string): string | null {
+export async function getRoomMembership(roomId: string, userId: string): Promise<string | null> {
   return getMembership(roomId, userId)
 }
 
@@ -33,7 +28,7 @@ export interface CreateRoomOptions {
   powerLevelContentOverride?: Record<string, unknown>
 }
 
-export function createRoom(opts: CreateRoomOptions): string {
+export async function createRoom(opts: CreateRoomOptions): Promise<string> {
   // Generate a unique room ID with collision retry
   let roomId = generateRoomId()
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -58,7 +53,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   }).run()
 
   // 1. m.room.create
-  createEvent({
+  await createEvent({
     roomId,
     sender: opts.creatorId,
     type: 'm.room.create',
@@ -70,7 +65,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   })
 
   // 2. Creator joins
-  createEvent({
+  await createEvent({
     roomId,
     sender: opts.creatorId,
     type: 'm.room.member',
@@ -112,7 +107,7 @@ export function createRoom(opts: CreateRoomOptions): string {
     ...overrideRest,
   }
 
-  createEvent({
+  await createEvent({
     roomId,
     sender: opts.creatorId,
     type: 'm.room.power_levels',
@@ -121,7 +116,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   })
 
   // 4. Join rules
-  createEvent({
+  await createEvent({
     roomId,
     sender: opts.creatorId,
     type: 'm.room.join_rules',
@@ -130,7 +125,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   })
 
   // 5. History visibility
-  createEvent({
+  await createEvent({
     roomId,
     sender: opts.creatorId,
     type: 'm.room.history_visibility',
@@ -139,7 +134,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   })
 
   // 6. Guest access
-  createEvent({
+  await createEvent({
     roomId,
     sender: opts.creatorId,
     type: 'm.room.guest_access',
@@ -149,7 +144,7 @@ export function createRoom(opts: CreateRoomOptions): string {
 
   // 7. Optional name
   if (opts.name) {
-    createEvent({
+    await createEvent({
       roomId,
       sender: opts.creatorId,
       type: 'm.room.name',
@@ -160,7 +155,7 @@ export function createRoom(opts: CreateRoomOptions): string {
 
   // 8. Optional topic
   if (opts.topic) {
-    createEvent({
+    await createEvent({
       roomId,
       sender: opts.creatorId,
       type: 'm.room.topic',
@@ -182,7 +177,7 @@ export function createRoom(opts: CreateRoomOptions): string {
     for (const stateEvent of opts.initialState) {
       if (protectedTypes.has(stateEvent.type))
         continue
-      createEvent({
+      await createEvent({
         roomId,
         sender: opts.creatorId,
         type: stateEvent.type,
@@ -195,7 +190,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   // 10. Force encryption if not already set by initial_state
   const hasEncryption = opts.initialState?.some(e => e.type === 'm.room.encryption')
   if (requireEncryption && !hasEncryption) {
-    createEvent({
+    await createEvent({
       roomId,
       sender: opts.creatorId,
       type: 'm.room.encryption',
@@ -207,7 +202,7 @@ export function createRoom(opts: CreateRoomOptions): string {
   // 11. Invite users
   if (opts.invite) {
     for (const userId of opts.invite) {
-      createEvent({
+      await createEvent({
         roomId,
         sender: opts.creatorId,
         type: 'm.room.member',
@@ -240,28 +235,28 @@ export interface RoomSummary {
   room_version?: string
 }
 
-export function getRoomSummary(roomId: string, userId?: string): RoomSummary | null {
+export async function getRoomSummary(roomId: string, userId?: string): Promise<RoomSummary | null> {
   const room = db.select().from(rooms).where(eq(rooms.id, roomId)).get()
   if (!room)
     return null
 
-  const joinRuleContent = getStateContent(roomId, 'm.room.join_rules', '')
+  const joinRuleContent = await getStateContent(roomId, 'm.room.join_rules', '')
   const joinRule = (joinRuleContent?.join_rule as string) ?? 'invite'
 
-  const histVis = getStateContent(roomId, 'm.room.history_visibility')
+  const histVis = await getStateContent(roomId, 'm.room.history_visibility')
   const worldReadable = (histVis?.history_visibility as string) === 'world_readable'
 
-  const guestAccessContent = getStateContent(roomId, 'm.room.guest_access')
+  const guestAccessContent = await getStateContent(roomId, 'm.room.guest_access')
   const guestCanJoin = (guestAccessContent?.guest_access as string) === 'can_join'
 
   // Access control: unauthenticated users can only see public/knock/world-readable rooms
-  const membership = userId ? getMembership(roomId, userId) : null
+  const membership = userId ? await getMembership(roomId, userId) : null
   const isMember = membership === 'join' || membership === 'invite'
   const isPublicish = joinRule === 'public' || joinRule === 'knock' || worldReadable
   if (!isMember && !isPublicish)
     return null
 
-  const joinedCount = getJoinedMemberCount(roomId)
+  const joinedCount = await getJoinedMemberCount(roomId)
 
   const summary: RoomSummary = {
     room_id: roomId,
@@ -271,15 +266,15 @@ export function getRoomSummary(roomId: string, userId?: string): RoomSummary | n
     room_version: room.version,
   }
 
-  const nameContent = getStateContent(roomId, 'm.room.name')
+  const nameContent = await getStateContent(roomId, 'm.room.name')
   if (nameContent?.name)
     summary.name = nameContent.name as string
 
-  const avatarContent = getStateContent(roomId, 'm.room.avatar')
+  const avatarContent = await getStateContent(roomId, 'm.room.avatar')
   if (avatarContent?.url)
     summary.avatar_url = avatarContent.url as string
 
-  const topicContent = getStateContent(roomId, 'm.room.topic')
+  const topicContent = await getStateContent(roomId, 'm.room.topic')
   if (topicContent?.topic)
     summary.topic = topicContent.topic as string
 
@@ -293,11 +288,11 @@ export function getRoomSummary(roomId: string, userId?: string): RoomSummary | n
   if (alias)
     summary.canonical_alias = alias.alias
 
-  const createContent = getStateContent(roomId, 'm.room.create')
+  const createContent = await getStateContent(roomId, 'm.room.create')
   if (createContent?.type)
     summary.room_type = createContent.type as string
 
-  const encContent = getStateContent(roomId, 'm.room.encryption')
+  const encContent = await getStateContent(roomId, 'm.room.encryption')
   if (encContent?.algorithm)
     summary.encryption = encContent.algorithm as string
 

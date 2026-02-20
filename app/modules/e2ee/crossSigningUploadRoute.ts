@@ -4,8 +4,9 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { accountDataCrossSigning, devices, e2eeDeviceListChanges } from '@/db/schema'
+import { invalidateTrustCache } from '@/models/device'
 import { notifyUser } from '@/modules/sync/notifier'
-import { authMiddleware, invalidateDeviceTrustCache } from '@/shared/middleware/auth'
+import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
 import { generateUlid } from '@/utils/tokens'
 import { CROSS_SIGNING_KEY_TYPES, isCrossSigningResetVerified, stableJson } from './crossSigningHelpers'
@@ -127,7 +128,7 @@ crossSigningRoute.post('/', async (c) => {
         ))
         .run()
     })
-    invalidateDeviceTrustCache(auth.userId, auth.deviceId)
+    await invalidateTrustCache(auth.userId, auth.deviceId)
   }
   else {
     for (const { dbType, keyData } of incoming) {

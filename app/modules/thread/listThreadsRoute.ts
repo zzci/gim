@@ -20,7 +20,7 @@ threadListRoute.get('/:roomId/threads', async (c) => {
   const auth = c.get('auth')
   const roomId = c.req.param('roomId')
 
-  const membership = getRoomMembership(roomId, auth.userId)
+  const membership = await getRoomMembership(roomId, auth.userId)
   if (membership !== 'join' && membership !== 'invite') {
     return matrixForbidden(c, 'Not a member of this room')
   }

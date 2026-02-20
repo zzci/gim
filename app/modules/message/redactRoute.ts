@@ -3,9 +3,10 @@ import type { AuthEnv } from '@/shared/middleware/auth'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { currentRoomState, eventsState, eventsTimeline, roomMembers } from '@/db/schema'
+import { getUserPowerLevel } from '@/models/roomState'
 import { createEvent } from '@/modules/message/service'
 import { getPowerLevelsContent, getRoomId } from '@/modules/message/shared'
-import { getRoomMembership, getUserPowerLevel } from '@/modules/room/service'
+import { getRoomMembership } from '@/modules/room/service'
 import { parseEventId, queryEventById } from '@/shared/helpers/eventQueries'
 import { matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 
@@ -17,7 +18,7 @@ export function registerRedactRoute(router: Hono<AuthEnv>) {
     const targetEventId = parseEventId(c.req.param('eventId'))
     const txnId = c.req.param('txnId')
 
-    const membership = getRoomMembership(roomId, auth.userId)
+    const membership = await getRoomMembership(roomId, auth.userId)
     if (membership !== 'join')
       return matrixForbidden(c, 'Not a member of this room')
 
@@ -26,8 +27,8 @@ export function registerRedactRoute(router: Hono<AuthEnv>) {
       return matrixNotFound(c, 'Event not found')
 
     // Power level check: user needs 'redact' power level OR must be the event sender
-    const powerLevels = getPowerLevelsContent(roomId)
-    const userPower = getUserPowerLevel(roomId, auth.userId)
+    const powerLevels = await getPowerLevelsContent(roomId)
+    const userPower = await getUserPowerLevel(roomId, auth.userId)
     const redactLevel = (powerLevels.redact as number) ?? 50
     if (userPower < redactLevel && targetEvent.sender !== auth.userId)
       return matrixForbidden(c, 'Insufficient power level')
@@ -59,7 +60,7 @@ export function registerRedactRoute(router: Hono<AuthEnv>) {
       }
     }
 
-    const redactionEvent = createEvent({
+    const redactionEvent = await createEvent({
       roomId,
       sender: auth.userId,
       type: 'm.room.redaction',

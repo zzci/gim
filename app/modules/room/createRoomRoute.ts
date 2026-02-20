@@ -13,7 +13,7 @@ createRoomRoute.use('/*', authMiddleware)
 
 createRoomRoute.post('/', async (c) => {
   const auth = c.get('auth')
-  if (!checkUserRoomLimit(auth.userId)) {
+  if (!await checkUserRoomLimit(auth.userId)) {
     return matrixError(c, 'M_RESOURCE_LIMIT_EXCEEDED', `You have reached the maximum number of rooms (${maxRoomsPerUser})`)
   }
   const body = await c.req.json()
@@ -22,7 +22,7 @@ createRoomRoute.post('/', async (c) => {
   if (!v.success)
     return v.response
 
-  const roomId = createRoom({
+  const roomId = await createRoom({
     creatorId: auth.userId,
     name: body.name,
     topic: body.topic,

@@ -30,7 +30,7 @@ export interface AccountTokenRecord {
 
 const TOKEN_CACHE_KEY_PREFIX = 'account_token:'
 const TOKEN_MISS_TTL_SECONDS = 60
-const LAST_USED_FLUSH_INTERVAL_MS = 2 * 60 * 60 * 1000 // 2 hours
+const LAST_USED_FLUSH_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
 const TOKEN_CACHE_MAX_TTL_SECONDS = Number(process.env.IM_ACCOUNT_TOKEN_CACHE_MAX_TTL_SEC || 7200) || 7200
 const TOKEN_VALIDITY_SECONDS = Number(process.env.IM_ACCOUNT_TOKEN_VALIDITY_SEC || 0) || 0
 
@@ -101,12 +101,14 @@ function flushLastUsedAtNow(): void {
 
   const updates = [...pendingLastUsedAt.entries()]
   pendingLastUsedAt.clear()
-  for (const [token, usedAtMs] of updates) {
-    db.update(accountTokens)
-      .set({ lastUsedAt: new Date(usedAtMs) })
-      .where(eq(accountTokens.token, token))
-      .run()
-  }
+  db.transaction((tx) => {
+    for (const [token, usedAtMs] of updates) {
+      tx.update(accountTokens)
+        .set({ lastUsedAt: new Date(usedAtMs) })
+        .where(eq(accountTokens.token, token))
+        .run()
+    }
+  })
 }
 
 const flushTimer = setInterval(flushLastUsedAtNow, LAST_USED_FLUSH_INTERVAL_MS)

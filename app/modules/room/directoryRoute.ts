@@ -32,12 +32,12 @@ directoryListRoute.put('/:roomId', authMiddleware, async (c) => {
   if (!room)
     return matrixNotFound(c, 'Room not found')
 
-  const membership = getMembership(roomId, auth.userId)
+  const membership = await getMembership(roomId, auth.userId)
   if (membership !== 'join')
     return matrixForbidden(c, 'Not a member of this room')
 
-  const userPower = getUserPowerLevel(roomId, auth.userId)
-  const requiredPower = getActionPowerLevel(roomId, 'state_default')
+  const userPower = await getUserPowerLevel(roomId, auth.userId)
+  const requiredPower = await getActionPowerLevel(roomId, 'state_default')
   if (userPower < requiredPower)
     return matrixForbidden(c, 'Insufficient power level')
 
@@ -50,14 +50,14 @@ directoryListRoute.put('/:roomId', authMiddleware, async (c) => {
 // ---- Public Room Directory ----
 export const publicRoomsRoute = new Hono<AuthEnv>()
 
-function getPublicRooms(limit: number, since: number, filter?: string) {
+async function getPublicRooms(limit: number, since: number, filter?: string) {
   const allPublic = db.select().from(rooms).where(eq(rooms.visibility, 'public')).all()
 
   const results = []
   for (const room of allPublic) {
-    const name = (getStateContent(room.id, 'm.room.name', '') as Record<string, unknown> | null)?.name as string | undefined
-    const topic = (getStateContent(room.id, 'm.room.topic', '') as Record<string, unknown> | null)?.topic as string | undefined
-    const avatarUrl = (getStateContent(room.id, 'm.room.avatar', '') as Record<string, unknown> | null)?.url as string | undefined
+    const name = (await getStateContent(room.id, 'm.room.name', '') as Record<string, unknown> | null)?.name as string | undefined
+    const topic = (await getStateContent(room.id, 'm.room.topic', '') as Record<string, unknown> | null)?.topic as string | undefined
+    const avatarUrl = (await getStateContent(room.id, 'm.room.avatar', '') as Record<string, unknown> | null)?.url as string | undefined
 
     // Apply text filter
     if (filter) {
@@ -70,10 +70,10 @@ function getPublicRooms(limit: number, since: number, filter?: string) {
     const alias = db.select({ alias: roomAliases.alias }).from(roomAliases).where(eq(roomAliases.roomId, room.id)).get()
 
     // Get member count
-    const memberCount = getJoinedMemberCount(room.id)
+    const memberCount = await getJoinedMemberCount(room.id)
 
     // Get join rule
-    const joinRuleContent = getStateContent(room.id, 'm.room.join_rules', '')
+    const joinRuleContent = await getStateContent(room.id, 'm.room.join_rules', '')
     const joinRule = (joinRuleContent?.join_rule as string) ?? 'public'
 
     results.push({
@@ -101,11 +101,11 @@ function getPublicRooms(limit: number, since: number, filter?: string) {
 }
 
 // GET / — List public rooms
-publicRoomsRoute.get('/', (c) => {
+publicRoomsRoute.get('/', async (c) => {
   const limit = Math.min(Math.max(Number(c.req.query('limit') || 20), 1), 100)
   const since = Math.max(Number(c.req.query('since') || 0), 0)
 
-  return c.json(getPublicRooms(limit, since))
+  return c.json(await getPublicRooms(limit, since))
 })
 
 // POST / — Search public rooms
@@ -115,5 +115,5 @@ publicRoomsRoute.post('/', async (c) => {
   const since = Math.max(Number(body.since || 0), 0)
   const filter = body.filter?.generic_search_term
 
-  return c.json(getPublicRooms(limit, since, filter))
+  return c.json(await getPublicRooms(limit, since, filter))
 })

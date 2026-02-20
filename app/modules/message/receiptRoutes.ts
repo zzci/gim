@@ -13,7 +13,7 @@ export function registerReceiptRoutes(router: Hono<AuthEnv>) {
     const auth = c.get('auth')
     const roomId = getRoomId(c)
 
-    if (getMembership(roomId, auth.userId) !== 'join')
+    if (await getMembership(roomId, auth.userId) !== 'join')
       return matrixForbidden(c, 'Not a member of this room')
 
     const receiptType = c.req.param('receiptType')
@@ -38,7 +38,7 @@ export function registerReceiptRoutes(router: Hono<AuthEnv>) {
     const auth = c.get('auth')
     const roomId = getRoomId(c)
 
-    if (getMembership(roomId, auth.userId) !== 'join')
+    if (await getMembership(roomId, auth.userId) !== 'join')
       return matrixForbidden(c, 'Not a member of this room')
 
     const body = await c.req.json()

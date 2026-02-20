@@ -14,7 +14,7 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
     const auth = c.get('auth')
     const roomId = getRoomId(c)
 
-    const membership = getMembership(roomId, auth.userId)
+    const membership = await getMembership(roomId, auth.userId)
     if (membership !== 'join' && membership !== 'invite') {
       return matrixForbidden(c, 'Not a member of this room')
     }
@@ -42,12 +42,12 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
     const roomId = getRoomId(c)
     const eventType = c.req.param('eventType')
 
-    const membership = getMembership(roomId, auth.userId)
+    const membership = await getMembership(roomId, auth.userId)
     if (membership !== 'join' && membership !== 'invite') {
       return matrixForbidden(c, 'Not a member of this room')
     }
 
-    const content = getStateContent(roomId, eventType, '')
+    const content = await getStateContent(roomId, eventType, '')
     if (content === null)
       return matrixNotFound(c, 'State event not found')
 
@@ -61,12 +61,12 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
     const eventType = c.req.param('eventType')
     const stateKey = c.req.param('stateKey') ?? ''
 
-    const membership = getMembership(roomId, auth.userId)
+    const membership = await getMembership(roomId, auth.userId)
     if (membership !== 'join' && membership !== 'invite') {
       return matrixForbidden(c, 'Not a member of this room')
     }
 
-    const content = getStateContent(roomId, eventType, stateKey)
+    const content = await getStateContent(roomId, eventType, stateKey)
     if (content === null)
       return matrixNotFound(c, 'State event not found')
 
@@ -81,12 +81,12 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
     const eventType = c.req.param('eventType')
     const stateKey = c.req.param('stateKey') ?? ''
 
-    const membership = getMembership(roomId, auth.userId)
+    const membership = await getMembership(roomId, auth.userId)
     if (membership !== 'join')
       return matrixForbidden(c, 'Not a member of this room')
 
-    const powerLevels = getPowerLevelsContent(roomId)
-    const userPower = getUserPowerLevel(roomId, auth.userId)
+    const powerLevels = await getPowerLevelsContent(roomId)
+    const userPower = await getUserPowerLevel(roomId, auth.userId)
     const eventsMap = (powerLevels.events as Record<string, number>) ?? {}
     const requiredLevel = eventsMap[eventType] ?? (powerLevels.state_default as number) ?? 50
     if (userPower < requiredLevel)
@@ -94,7 +94,7 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
 
     // Prevent disabling encryption when requireEncryption is on
     if (requireEncryption && eventType === 'm.room.encryption') {
-      if (getStateContent(roomId, 'm.room.encryption', '') !== null)
+      if (await getStateContent(roomId, 'm.room.encryption', '') !== null)
         return matrixForbidden(c, 'Cannot modify encryption settings')
     }
 
@@ -126,7 +126,7 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
       if (!v.success)
         return v.response
 
-      const event = createEvent({
+      const event = await createEvent({
         roomId,
         sender: auth.userId,
         type: eventType,
@@ -143,7 +143,7 @@ export function registerStateRoutes(router: Hono<AuthEnv>) {
     if (!v.success)
       return v.response
 
-    const event = createEvent({
+    const event = await createEvent({
       roomId,
       sender: auth.userId,
       type: eventType,

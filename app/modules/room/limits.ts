@@ -1,14 +1,14 @@
 import { maxRoomMembers, maxRoomsPerUser } from '@/config'
 import { getJoinedMemberCount, getJoinedRoomIds } from '@/models/roomMembership'
 
-export function checkUserRoomLimit(userId: string): boolean {
+export async function checkUserRoomLimit(userId: string): Promise<boolean> {
   if (maxRoomsPerUser <= 0)
     return true
   return getJoinedRoomIds(userId).length < maxRoomsPerUser
 }
 
-export function checkRoomMemberLimit(roomId: string): boolean {
+export async function checkRoomMemberLimit(roomId: string): Promise<boolean> {
   if (maxRoomMembers <= 0)
     return true
-  return getJoinedMemberCount(roomId) < maxRoomMembers
+  return await getJoinedMemberCount(roomId) < maxRoomMembers
 }

@@ -3,10 +3,11 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { db } from '@/db'
 import { accountDataCrossSigning, accounts, accountTokens, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
+import { invalidateDeactivatedCache } from '@/models/account'
 import { invalidateAccountTokens } from '@/modules/account/tokenCache'
 import { createEvent } from '@/modules/message/service'
 import { invalidateOAuthAccessTokensByAccountId } from '@/oauth/accessTokenCache'
-import { authMiddleware, invalidateAccountStatusCache } from '@/shared/middleware/auth'
+import { authMiddleware } from '@/shared/middleware/auth'
 
 export const deactivateRoute = new Hono<AuthEnv>()
 deactivateRoute.use('/*', authMiddleware)
@@ -53,10 +54,10 @@ deactivateRoute.post('/', async (c) => {
 
   await invalidateAccountTokens(revokedTokens)
   await invalidateOAuthAccessTokensByAccountId(localpart)
-  invalidateAccountStatusCache(userId)
+  await invalidateDeactivatedCache(userId)
 
   for (const { roomId } of joinedRooms) {
-    createEvent({
+    await createEvent({
       roomId,
       sender: userId,
       type: 'm.room.member',

@@ -1,21 +1,18 @@
 import type { Context, Next } from 'hono'
+import type { AppServiceResolvedToken } from '@/models/auth'
 import type { DeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { eq } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { oauthTokens } from '@/db/schema'
 import { isDeactivated } from '@/models/account'
-import { ensureDevice, getTrustState } from '@/models/device'
-import { getAccountToken, markAccountTokenUsed } from '@/modules/account/tokenCache'
-import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } from '@/modules/appservice/config'
-import { getOAuthAccessToken } from '@/oauth/accessTokenCache'
+import { resolveToken } from '@/models/auth'
+import { ensureDevice, getTrustState, invalidateTrustCache } from '@/models/device'
+import { markAccountTokenUsed } from '@/modules/account/tokenCache'
+import { ensureAppServiceUser } from '@/modules/appservice/config'
 import { isPathAllowedForUnverifiedDevice } from '@/shared/middleware/deviceTrust'
 import { generateDeviceId } from '@/utils/tokens'
 import { matrixError } from './errors'
-
-// Re-exports for backwards compatibility
-export { invalidateDeactivatedCache as invalidateAccountStatusCache } from '@/models/account'
-export { invalidateTrustCache as invalidateDeviceTrustCache } from '@/models/device'
 
 export interface AuthContext {
   userId: string
@@ -45,83 +42,50 @@ export async function authMiddleware(c: Context, next: Next) {
     return matrixError(c, 'M_MISSING_TOKEN', 'Missing access token')
   }
 
-  // Try Application Service tokens first
-  const asReg = getRegistrationByAsToken(token)
-  if (asReg) {
-    const assertUserId = c.req.query('user_id')
-    let userId: string
+  const result = await resolveToken(token, serverName, c.req.query('user_id'))
 
-    if (assertUserId) {
-      // Validate asserted user is in AS namespace
-      if (!isUserInNamespace(assertUserId, asReg)) {
-        return matrixError(c, 'M_FORBIDDEN', 'User is not in appservice namespace')
-      }
-      userId = assertUserId
-    }
-    else {
-      userId = `@${asReg.senderLocalpart}:${serverName}`
-    }
+  if (!result) {
+    return matrixError(c, 'M_UNKNOWN_TOKEN', 'Unknown or expired access token', { soft_logout: false })
+  }
 
-    // Auto-create the user account if needed
-    ensureAppServiceUser(userId)
+  // Error result from resolveToken
+  if ('error' in result) {
+    return matrixError(c, result.errorCode, result.error, result.extra)
+  }
 
-    // AS requests skip device tracking
-    c.set('auth', { userId, deviceId: 'APPSERVICE', isGuest: false, trustState: 'trusted' } as AuthContext)
+  // AppService tokens skip device tracking
+  if (result.source === 'appservice') {
+    const asResult = result as AppServiceResolvedToken
+    ensureAppServiceUser(asResult.userId)
+    c.set('auth', { userId: asResult.userId, deviceId: 'APPSERVICE', isGuest: false, trustState: 'trusted' } as AuthContext)
     await next()
     return
   }
 
-  // Try OAuth tokens first
-  const row = await getOAuthAccessToken(token)
+  let { userId, deviceId } = result
 
-  let userId: string
-  let deviceId: string
-  let trustState: DeviceTrustState = 'unverified'
-
-  if (row) {
-    if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
-      return matrixError(c, 'M_UNKNOWN_TOKEN', 'Access token has expired', { soft_logout: true })
-    }
-    if (row.consumedAt) {
-      return matrixError(c, 'M_UNKNOWN_TOKEN', 'Access token has been consumed', { soft_logout: false })
-    }
-    const accountId = row.accountId
-    if (!accountId) {
-      return matrixError(c, 'M_UNKNOWN_TOKEN', 'Invalid token: missing accountId', { soft_logout: false })
-    }
-    userId = accountId.startsWith('@') ? accountId : `@${accountId}:${serverName}`
-    if (!row.deviceId) {
-      // Backfill legacy OAuth tokens that were issued without device_id.
-      logger.warn('oauth_token_missing_device_id', { tokenId: row.id, accountId })
-      const generated = generateDeviceId()
-      db.update(oauthTokens)
-        .set({ deviceId: generated })
-        .where(eq(oauthTokens.id, row.id))
-        .run()
-      deviceId = generated
-    }
-    else {
-      deviceId = row.deviceId
-    }
+  // Backfill legacy OAuth tokens that were issued without device_id
+  if (result.source === 'oauth' && result.deviceIdBackfilled) {
+    logger.warn('oauth_token_missing_device_id', { tokenId: result.oauthTokenId, userId })
+    const generated = generateDeviceId()
+    db.update(oauthTokens)
+      .set({ deviceId: generated })
+      .where(eq(oauthTokens.id, result.oauthTokenId!))
+      .run()
+    deviceId = generated
+    await invalidateTrustCache(userId, generated)
   }
-  else {
-    // Fall back to user tokens (long-lived bot tokens)
-    const userToken = await getAccountToken(token)
-    if (!userToken) {
-      return matrixError(c, 'M_UNKNOWN_TOKEN', 'Unknown or expired access token', { soft_logout: false })
-    }
-    userId = userToken.userId
-    deviceId = userToken.deviceId
 
-    // Write-through cache; DB sync is batched by token cache service every 2 hours.
+  // Mark account token as used (write-through cache; DB sync is batched)
+  if (result.source === 'account') {
     await markAccountTokenUsed(token)
   }
 
-  const trustResult = getTrustState(userId, deviceId)
-  trustState = trustResult.trustState
+  const trustResult = await getTrustState(userId, deviceId)
+  const trustState = trustResult.trustState
 
   // Check account exists and is active
-  if (isDeactivated(userId)) {
+  if (await isDeactivated(userId)) {
     return matrixError(c, 'M_USER_DEACTIVATED', 'This account has been deactivated')
   }
 

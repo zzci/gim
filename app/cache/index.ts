@@ -36,6 +36,12 @@ export async function cacheHas(key: string): Promise<boolean> {
   return await s.hasItem(key)
 }
 
+export async function cacheDelPrefix(prefix: string): Promise<void> {
+  const s = await resolveCache()
+  const keys = await s.getKeys(prefix)
+  await Promise.all(keys.map(k => s.removeItem(k)))
+}
+
 export async function closeCache(): Promise<void> {
   if (_cache) {
     await _cache.dispose()

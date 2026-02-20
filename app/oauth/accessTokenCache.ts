@@ -133,8 +133,13 @@ export async function getOAuthAccessToken(token: string): Promise<OAuthAccessTok
   return record
 }
 
-export function primeOAuthAccessTokenCache(row: OAuthAccessTokenRecord): void {
-  void setAccessTokenHit(row, Date.now())
+export async function primeOAuthAccessTokenCache(row: OAuthAccessTokenRecord): Promise<void> {
+  try {
+    await setAccessTokenHit(row, Date.now())
+  }
+  catch (e) {
+    logger.warn('prime_cache_failed', { error: e instanceof Error ? e.message : String(e) })
+  }
 }
 
 export async function invalidateOAuthAccessToken(tokenOrId: string): Promise<void> {

@@ -2,7 +2,7 @@ import type { Hono } from 'hono'
 import { and, count, eq, like } from 'drizzle-orm'
 import { db } from '@/db'
 import { accounts, devices, roomMembers } from '@/db/schema'
-import { invalidateAccountStatusCache } from '@/shared/middleware/auth'
+import { invalidateDeactivatedCache } from '@/models/account'
 import { getAdminContext, logAdminAction } from './helpers'
 
 export function registerAdminUsersRoutes(adminRoute: Hono) {
@@ -73,7 +73,7 @@ export function registerAdminUsersRoutes(adminRoute: Hono) {
     if (Object.keys(updates).length > 0) {
       db.update(accounts).set(updates).where(eq(accounts.id, userId)).run()
       if (typeof body.isDeactivated === 'boolean') {
-        invalidateAccountStatusCache(userId)
+        await invalidateDeactivatedCache(userId)
       }
     }
 

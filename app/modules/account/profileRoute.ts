@@ -57,7 +57,7 @@ profileRoute.put('/:userId/displayname', authMiddleware, async (c) => {
     .set({ displayname: body.displayname ?? null })
     .where(eq(accounts.id, userId))
 
-  invalidateDisplayNameCache(userId)
+  await invalidateDisplayNameCache(userId)
 
   return c.json({})
 })

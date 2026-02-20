@@ -13,7 +13,7 @@ export function registerEventByIdRoute(router: Hono<AuthEnv>) {
     const roomId = getRoomId(c)
     const eventId = parseEventId(c.req.param('eventId'))
 
-    const membership = getRoomMembership(roomId, auth.userId)
+    const membership = await getRoomMembership(roomId, auth.userId)
     if (membership !== 'join' && membership !== 'invite') {
       return matrixForbidden(c, 'Not a member of this room')
     }

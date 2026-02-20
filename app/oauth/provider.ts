@@ -481,7 +481,7 @@ oauthApp.post('/token', async (c) => {
       return c.json({ error: 'invalid_request', error_description: 'Missing code' }, 400)
     }
 
-    const result = exchangeAuthCode(code, codeVerifier, clientId, redirectUri)
+    const result = await exchangeAuthCode(code, codeVerifier, clientId, redirectUri)
     if ('error' in result) {
       return c.json(result, 400)
     }
@@ -494,7 +494,7 @@ oauthApp.post('/token', async (c) => {
       return c.json({ error: 'invalid_request', error_description: 'Missing refresh_token' }, 400)
     }
 
-    const result = exchangeRefreshToken(refreshToken)
+    const result = await exchangeRefreshToken(refreshToken)
     if ('error' in result) {
       return c.json(result, 400)
     }

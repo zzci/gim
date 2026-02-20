@@ -12,7 +12,7 @@ refreshRoute.post('/', async (c) => {
     return matrixError(c, 'M_MISSING_PARAM', 'Missing refresh_token')
   }
 
-  const result = exchangeRefreshToken(refresh_token)
+  const result = await exchangeRefreshToken(refresh_token)
 
   if ('error' in result) {
     return matrixError(c, 'M_UNKNOWN_TOKEN', result.error_description)

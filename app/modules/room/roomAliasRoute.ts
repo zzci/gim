@@ -34,13 +34,13 @@ roomAliasRoute.put('/:roomAlias', authMiddleware, async (c) => {
     return matrixNotFound(c, 'Room not found')
   }
 
-  const membership = getMembership(roomId, auth.userId)
+  const membership = await getMembership(roomId, auth.userId)
   if (membership !== 'join') {
     return matrixForbidden(c, 'Not a member of this room')
   }
 
-  const userPower = getUserPowerLevel(roomId, auth.userId)
-  const requiredPower = getActionPowerLevel(roomId, 'state_default')
+  const userPower = await getUserPowerLevel(roomId, auth.userId)
+  const requiredPower = await getActionPowerLevel(roomId, 'state_default')
   if (userPower < requiredPower) {
     return matrixForbidden(c, 'Insufficient power level to create room alias')
   }
@@ -84,7 +84,7 @@ roomAliasRoute.delete('/:roomAlias', authMiddleware, async (c) => {
     return matrixNotFound(c, 'Room alias not found')
   }
 
-  const membership = getMembership(alias.roomId, auth.userId)
+  const membership = await getMembership(alias.roomId, auth.userId)
   if (membership !== 'join') {
     return matrixForbidden(c, 'Not a member of this room')
   }
@@ -92,7 +92,7 @@ roomAliasRoute.delete('/:roomAlias', authMiddleware, async (c) => {
   db.delete(roomAliases).where(eq(roomAliases.alias, roomAlias)).run()
 
   // Clean up m.room.canonical_alias if the deleted alias was published
-  const canonicalContent = getStateContent(alias.roomId, 'm.room.canonical_alias', '')
+  const canonicalContent = await getStateContent(alias.roomId, 'm.room.canonical_alias', '')
 
   if (canonicalContent) {
     const content = canonicalContent as { alias?: string, alt_aliases?: string[] }
@@ -114,7 +114,7 @@ roomAliasRoute.delete('/:roomAlias', authMiddleware, async (c) => {
       if (altAliases.length > 0)
         newContent.alt_aliases = altAliases
 
-      createEvent({
+      await createEvent({
         roomId: alias.roomId,
         sender: auth.userId,
         type: 'm.room.canonical_alias',

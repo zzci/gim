@@ -15,7 +15,7 @@ export function registerMessagesRoute(router: Hono<AuthEnv>) {
     const dir = c.req.query('dir') || 'b'
     const limit = Math.min(Number.parseInt(c.req.query('limit') || '10'), 100)
 
-    const membership = getRoomMembership(roomId, auth.userId)
+    const membership = await getRoomMembership(roomId, auth.userId)
     if (membership !== 'join' && membership !== 'invite') {
       return matrixForbidden(c, 'Not a member of this room')
     }

@@ -94,7 +94,7 @@ export function registerAdminRoomsRoutes(adminRoute: Hono) {
     const { adminUserId, ip } = getAdminContext(c)
     const body = await c.req.json<{ content: Record<string, unknown> }>()
 
-    const event = createEvent({
+    const event = await createEvent({
       roomId,
       sender: adminUserId,
       type: eventType,

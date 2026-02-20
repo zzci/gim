@@ -14,7 +14,7 @@ export function registerSendEventRoute(router: Hono<AuthEnv>) {
     const eventType = c.req.param('eventType')
     const txnId = c.req.param('txnId')
 
-    const membership = getRoomMembership(roomId, auth.userId)
+    const membership = await getRoomMembership(roomId, auth.userId)
     if (membership !== 'join')
       return matrixForbidden(c, 'Not a member of this room')
 
@@ -24,7 +24,7 @@ export function registerSendEventRoute(router: Hono<AuthEnv>) {
     if (!v.success)
       return v.response
 
-    const event = createEvent({
+    const event = await createEvent({
       roomId,
       sender: auth.userId,
       type: eventType,

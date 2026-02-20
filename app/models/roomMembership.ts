@@ -1,16 +1,16 @@
 import { and, count, eq } from 'drizzle-orm'
+import { cacheDel, cacheGet, cacheSet } from '@/cache'
 import { db } from '@/db'
 import { roomMembers } from '@/db/schema'
-import { TtlCache } from '@/utils/ttlCache'
 
-const membershipCache = new TtlCache<string | null>(60_000)
-const memberCountCache = new TtlCache<number>(60_000)
+const MEMBERSHIP_CACHE_TTL = 60 // 60 seconds
+const MEMBER_COUNT_CACHE_TTL = 60 // 60 seconds
 
 /** Get a user's membership state in a room (cached, 60s TTL). */
-export function getMembership(roomId: string, userId: string): string | null {
-  const cacheKey = `rm:${roomId}:${userId}`
-  const cached = membershipCache.get(cacheKey)
-  if (cached !== undefined)
+export async function getMembership(roomId: string, userId: string): Promise<string | null> {
+  const cacheKey = `m:rm:${roomId}:${userId}`
+  const cached = await cacheGet<string>(cacheKey)
+  if (cached !== null)
     return cached
 
   const member = db.select({ membership: roomMembers.membership })
@@ -22,15 +22,17 @@ export function getMembership(roomId: string, userId: string): string | null {
     .get()
 
   const result = member?.membership ?? null
-  membershipCache.set(cacheKey, result)
+  if (result !== null) {
+    await cacheSet(cacheKey, result, { ttl: MEMBERSHIP_CACHE_TTL })
+  }
   return result
 }
 
 /** Get the number of joined members in a room (cached, 60s TTL). */
-export function getJoinedMemberCount(roomId: string): number {
-  const cacheKey = `mc:${roomId}`
-  const cached = memberCountCache.get(cacheKey)
-  if (cached !== undefined)
+export async function getJoinedMemberCount(roomId: string): Promise<number> {
+  const cacheKey = `m:mc:${roomId}`
+  const cached = await cacheGet<number>(cacheKey)
+  if (cached !== null)
     return cached
 
   const result = db.select({ cnt: count() })
@@ -41,7 +43,7 @@ export function getJoinedMemberCount(roomId: string): number {
     ))
     .get()
   const cnt = result?.cnt ?? 0
-  memberCountCache.set(cacheKey, cnt)
+  await cacheSet(cacheKey, cnt, { ttl: MEMBER_COUNT_CACHE_TTL })
   return cnt
 }
 
@@ -70,11 +72,11 @@ export function getJoinedRoomIds(userId: string): string[] {
 }
 
 /** Invalidate cached membership for a specific user in a room. */
-export function invalidateMembership(roomId: string, userId: string): void {
-  membershipCache.invalidate(`rm:${roomId}:${userId}`)
+export async function invalidateMembership(roomId: string, userId: string): Promise<void> {
+  await cacheDel(`m:rm:${roomId}:${userId}`)
 }
 
 /** Invalidate cached member count for a room. */
-export function invalidateMemberCount(roomId: string): void {
-  memberCountCache.invalidate(`mc:${roomId}`)
+export async function invalidateMemberCount(roomId: string): Promise<void> {
+  await cacheDel(`m:mc:${roomId}`)
 }

@@ -1,13 +1,14 @@
 import type { DeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { and, desc, eq } from 'drizzle-orm'
+import { cacheDel, cacheGet, cacheSet } from '@/cache'
 import { db } from '@/db'
 import { accountDataCrossSigning, devices } from '@/db/schema'
 import { normalizeDeviceTrustState } from '@/shared/middleware/deviceTrust'
-import { TtlCache } from '@/utils/ttlCache'
 
 const DEVICE_UPDATE_INTERVAL = 5 * 60 * 1000 // 5 minutes
+const TRUST_CACHE_TTL = 300 // 5 minutes in seconds
+const MAX_DEVICE_THROTTLE_ENTRIES = 10_000
 
-const trustCache = new TtlCache<DeviceTrustState>(DEVICE_UPDATE_INTERVAL)
 const deviceLastUpdated = new Map<string, number>()
 
 // Periodic cleanup of stale deviceLastUpdated entries
@@ -23,10 +24,10 @@ cleanupTimer.unref()
 export type DeviceRow = typeof devices.$inferSelect
 
 /** Resolve trust state for a device (cached, 5min TTL). */
-export function getTrustState(userId: string, deviceId: string): { trustState: DeviceTrustState, existingDevice: { trustState: string | null } | undefined } {
-  const cacheKey = `${userId}:${deviceId}`
-  const cached = trustCache.get(cacheKey)
-  if (cached !== undefined) {
+export async function getTrustState(userId: string, deviceId: string): Promise<{ trustState: DeviceTrustState, existingDevice: { trustState: string | null } | undefined }> {
+  const cacheKey = `m:dt:${userId}:${deviceId}`
+  const cached = await cacheGet<DeviceTrustState>(cacheKey)
+  if (cached !== null) {
     return { trustState: cached, existingDevice: undefined }
   }
 
@@ -47,7 +48,7 @@ export function getTrustState(userId: string, deviceId: string): { trustState: D
       .get()
     trustState = !anyDevice && !hasCrossSigningKeys ? 'trusted' : 'unverified'
   }
-  trustCache.set(cacheKey, trustState)
+  await cacheSet(cacheKey, trustState, { ttl: TRUST_CACHE_TTL })
   return { trustState, existingDevice }
 }
 
@@ -109,11 +110,26 @@ export function ensureDevice(
       ipAddress,
     },
   }).run()
+
+  // Cap the throttle map to prevent unbounded growth
+  if (deviceLastUpdated.size >= MAX_DEVICE_THROTTLE_ENTRIES) {
+    let oldestKey: string | undefined
+    let oldestTs = Infinity
+    for (const [k, ts] of deviceLastUpdated) {
+      if (ts < oldestTs) {
+        oldestTs = ts
+        oldestKey = k
+      }
+    }
+    if (oldestKey)
+      deviceLastUpdated.delete(oldestKey)
+  }
+
   deviceLastUpdated.set(deviceKey, now)
   return true
 }
 
 /** Invalidate trust cache for a specific device. */
-export function invalidateTrustCache(userId: string, deviceId: string): void {
-  trustCache.invalidate(`${userId}:${deviceId}`)
+export async function invalidateTrustCache(userId: string, deviceId: string): Promise<void> {
+  await cacheDel(`m:dt:${userId}:${deviceId}`)
 }

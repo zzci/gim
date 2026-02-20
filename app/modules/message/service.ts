@@ -34,7 +34,7 @@ function extractMediaIds(content: Record<string, unknown>): string[] {
   return [...matches].map(m => m[1]!)
 }
 
-export function createEvent(input: EventInput): MatrixEvent {
+export async function createEvent(input: EventInput): Promise<MatrixEvent> {
   const event = db.transaction((tx) => {
     const id = generateEventId()
     const originServerTs = Date.now()
@@ -120,12 +120,12 @@ export function createEvent(input: EventInput): MatrixEvent {
 
   // Invalidate caches on state changes that affect cached data
   if (input.stateKey !== undefined) {
-    invalidateStateContent(input.roomId, input.type, input.stateKey)
+    await invalidateStateContent(input.roomId, input.type, input.stateKey)
   }
   if (input.type === 'm.room.member') {
-    invalidateMemberCount(input.roomId)
+    await invalidateMemberCount(input.roomId)
     if (input.stateKey) {
-      invalidateMembership(input.roomId, input.stateKey)
+      await invalidateMembership(input.roomId, input.stateKey)
     }
   }
 
@@ -134,7 +134,7 @@ export function createEvent(input: EventInput): MatrixEvent {
 
   // Record push notifications for room members
   try {
-    recordNotifications(event, input.roomId)
+    await recordNotifications(event, input.roomId)
   }
   catch {}
 

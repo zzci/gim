@@ -25,7 +25,7 @@ roomSummaryRoute.get('/:roomIdOrAlias/summary', async (c) => {
   }
 
   const userId = await tryExtractUserId(c)
-  const summary = getRoomSummary(roomId, userId)
+  const summary = await getRoomSummary(roomId, userId)
   if (!summary)
     return matrixNotFound(c, 'Room not found or not accessible')
 

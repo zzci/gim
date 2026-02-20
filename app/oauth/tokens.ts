@@ -4,6 +4,7 @@ import { and, eq, gte, isNull, or } from 'drizzle-orm'
 import { serverName } from '@/config'
 import { db } from '@/db'
 import { accountDataCrossSigning, devices, oauthTokens } from '@/db/schema'
+import { invalidateTrustCache } from '@/models/device'
 import { primeOAuthAccessTokenCache } from '@/oauth/accessTokenCache'
 import { generateDeviceId } from '@/utils/tokens'
 
@@ -109,13 +110,13 @@ function upsertDeviceScope(scope: string, deviceId: string, preferredPrefix = ST
   return next.join(' ')
 }
 
-function createTokenPair(
+async function createTokenPair(
   accountId: string,
   scope: string,
   clientId = 'gim-direct',
   grantId?: string,
   nonce?: string,
-): TokenResult {
+): Promise<TokenResult> {
   const nowMs = Date.now()
 
   // Extract deviceId from scope (stable + MSC2967), generate if missing or invalid
@@ -136,7 +137,7 @@ function createTokenPair(
     }
 
     // Inject device scope: replace invalid one or append.
-    scope = upsertDeviceScope(scope, deviceId, deviceScope?.prefix || STABLE_DEVICE_SCOPE_PREFIX)
+    scope = upsertDeviceScope(scope, deviceId!, deviceScope?.prefix || STABLE_DEVICE_SCOPE_PREFIX)
 
     // First device for a user should be trusted automatically — but only if they have
     // no cross-signing keys (user may have deleted all devices but still has keys set up)
@@ -149,10 +150,11 @@ function createTokenPair(
 
     db.insert(devices).values({
       userId,
-      id: deviceId,
+      id: deviceId!,
       trustState: isFirstDevice ? 'trusted' : 'unverified',
       trustReason: isFirstDevice ? 'first_device' : 'new_login_unverified',
     }).onConflictDoNothing().run()
+    await invalidateTrustCache(userId, deviceId!)
   }
 
   // Create grant if not provided
@@ -183,7 +185,7 @@ function createTokenPair(
     grantId,
     expiresAt: new Date(nowMs + ACCESS_TOKEN_TTL * 1000),
   }).run()
-  primeOAuthAccessTokenCache({
+  await primeOAuthAccessTokenCache({
     token: accessJti,
     id: `AccessToken:${accessJti}`,
     type: 'AccessToken',
@@ -296,12 +298,12 @@ export function validateAuthCode(
  * Exchange an authorization code for tokens.
  * Verifies PKCE challenge, client_id, and redirect_uri.
  */
-export function exchangeAuthCode(
+export async function exchangeAuthCode(
   code: string,
   codeVerifier: string,
   clientId: string,
   redirectUri: string,
-): TokenResult | TokenError {
+): Promise<TokenResult | TokenError> {
   const info = validateAuthCode(code, codeVerifier, clientId, redirectUri)
   if ('error' in info)
     return info
@@ -312,9 +314,9 @@ export function exchangeAuthCode(
  * Exchange a refresh token for a new token pair.
  * Consumes the old refresh token.
  */
-export function exchangeRefreshToken(
+export async function exchangeRefreshToken(
   refreshToken: string,
-): TokenResult | TokenError {
+): Promise<TokenResult | TokenError> {
   // Atomically consume the refresh token: check unconsumed + not expired in one UPDATE
   const consumed = db.update(oauthTokens)
     .set({ consumedAt: new Date() })
@@ -352,17 +354,17 @@ export function exchangeRefreshToken(
     scope = upsertDeviceScope(scope, row.deviceId)
   }
 
-  return createTokenPair(accountId, scope, clientId, grantId)
+  return await createTokenPair(accountId, scope, clientId, grantId)
 }
 
 /**
  * Issue tokens directly via internal PKCE flow (no HTTP roundtrip).
  * Used by the login endpoint.
  */
-export function issueTokensViaPkce(
+export async function issueTokensViaPkce(
   accountId: string,
   deviceId: string,
-): TokenResult {
+): Promise<TokenResult> {
   const scope = `openid urn:matrix:client:api:* urn:matrix:client:device:${deviceId}`
   return createTokenPair(accountId, scope)
 }

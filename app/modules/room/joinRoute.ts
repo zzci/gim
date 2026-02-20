@@ -4,10 +4,11 @@ import { Hono } from 'hono'
 import { maxRoomMembers, maxRoomsPerUser } from '@/config'
 import { db } from '@/db'
 import { roomAliases, rooms } from '@/db/schema'
+import { getJoinRule } from '@/models/roomState'
 import { queryAppServiceRoomAlias } from '@/modules/appservice/service'
 import { createEvent } from '@/modules/message/service'
 import { checkRoomMemberLimit, checkUserRoomLimit } from '@/modules/room/limits'
-import { getRoomJoinRule, getRoomMembership } from '@/modules/room/service'
+import { getRoomMembership } from '@/modules/room/service'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { matrixError, matrixForbidden, matrixNotFound } from '@/shared/middleware/errors'
 
@@ -37,24 +38,24 @@ joinRoute.post('/:roomIdOrAlias', async (c) => {
   if (!room) {
     return matrixNotFound(c, 'Room not found')
   }
-  const membership = getRoomMembership(roomId, auth.userId)
+  const membership = await getRoomMembership(roomId, auth.userId)
   if (membership === 'join') {
     return c.json({ room_id: roomId })
   }
-  const joinRule = getRoomJoinRule(roomId)
+  const joinRule = await getJoinRule(roomId)
   if (joinRule === 'invite' && membership !== 'invite') {
     return matrixForbidden(c, 'You are not invited to this room')
   }
   if (membership === 'ban') {
     return matrixForbidden(c, 'You are banned from this room')
   }
-  if (!checkUserRoomLimit(auth.userId)) {
+  if (!await checkUserRoomLimit(auth.userId)) {
     return matrixError(c, 'M_RESOURCE_LIMIT_EXCEEDED', `You have reached the maximum number of rooms (${maxRoomsPerUser})`)
   }
-  if (!checkRoomMemberLimit(roomId)) {
+  if (!await checkRoomMemberLimit(roomId)) {
     return matrixError(c, 'M_RESOURCE_LIMIT_EXCEEDED', `This room has reached the maximum number of members (${maxRoomMembers})`)
   }
-  createEvent({
+  await createEvent({
     roomId,
     sender: auth.userId,
     type: 'm.room.member',
