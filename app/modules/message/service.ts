@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { currentRoomState, eventsAttachments, eventsState, eventsTimeline, media, roomMembers } from '@/db/schema'
 import { invalidateMemberCountCache, invalidatePowerLevelCache, recordNotifications } from '@/modules/notification/service'
+import { invalidateRoomMembershipCache, invalidateRoomStateCache } from '@/modules/room/service'
 import { notifyUser } from '@/modules/sync/notifier'
 import { getMaxEventId } from '@/shared/helpers/eventQueries'
 import { generateEventId } from '@/utils/tokens'
@@ -117,11 +118,17 @@ export function createEvent(input: EventInput): MatrixEvent {
   })
 
   // Invalidate caches on state changes that affect cached data
+  if (input.stateKey !== undefined) {
+    invalidateRoomStateCache(input.roomId, input.type, input.stateKey)
+  }
   if (input.type === 'm.room.power_levels') {
     invalidatePowerLevelCache(input.roomId)
   }
   if (input.type === 'm.room.member') {
     invalidateMemberCountCache(input.roomId)
+    if (input.stateKey) {
+      invalidateRoomMembershipCache(input.roomId, input.stateKey)
+    }
   }
 
   // Notify waiting sync connections — outside the transaction

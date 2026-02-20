@@ -4,6 +4,23 @@ import { db } from '@/db'
 import { currentRoomState, eventsState, roomAliases, roomMembers, rooms } from '@/db/schema'
 import { createEvent } from '@/modules/message/service'
 import { generateRoomId } from '@/utils/tokens'
+import { TtlCache } from '@/utils/ttlCache'
+
+const roomStateCache = new TtlCache<Record<string, unknown> | null>(60_000)
+const roomMembershipCache = new TtlCache<string | null>(60_000)
+
+export function invalidateRoomStateCache(roomId: string, type?: string, stateKey?: string): void {
+  if (type !== undefined && stateKey !== undefined) {
+    roomStateCache.invalidate(`rs:${roomId}:${type}:${stateKey}`)
+  }
+  else {
+    roomStateCache.invalidatePrefix(`rs:${roomId}:`)
+  }
+}
+
+export function invalidateRoomMembershipCache(roomId: string, userId: string): void {
+  roomMembershipCache.invalidate(`rm:${roomId}:${userId}`)
+}
 
 export interface CreateRoomOptions {
   creatorId: string
@@ -215,27 +232,10 @@ export function createRoom(opts: CreateRoomOptions): string {
 
 // Check user power level in a room
 export function getUserPowerLevel(roomId: string, userId: string): number {
-  const stateRow = db.select({ eventId: currentRoomState.eventId })
-    .from(currentRoomState)
-    .where(and(
-      eq(currentRoomState.roomId, roomId),
-      eq(currentRoomState.type, 'm.room.power_levels'),
-      eq(currentRoomState.stateKey, ''),
-    ))
-    .get()
-
-  if (!stateRow)
+  const content = getRoomStateContent(roomId, 'm.room.power_levels', '')
+  if (!content)
     return 0
 
-  const event = db.select({ content: eventsState.content })
-    .from(eventsState)
-    .where(eq(eventsState.id, stateRow.eventId))
-    .get()
-
-  if (!event)
-    return 0
-
-  const content = event.content as Record<string, unknown>
   const usersMap = content.users as Record<string, number> | undefined
   if (usersMap && userId in usersMap) {
     return usersMap[userId]!
@@ -245,32 +245,20 @@ export function getUserPowerLevel(roomId: string, userId: string): number {
 
 // Get the required power level for an action (invite, kick, ban, redact, etc.)
 export function getActionPowerLevel(roomId: string, action: string): number {
-  const stateRow = db.select({ eventId: currentRoomState.eventId })
-    .from(currentRoomState)
-    .where(and(
-      eq(currentRoomState.roomId, roomId),
-      eq(currentRoomState.type, 'm.room.power_levels'),
-      eq(currentRoomState.stateKey, ''),
-    ))
-    .get()
-
-  if (!stateRow)
+  const content = getRoomStateContent(roomId, 'm.room.power_levels', '')
+  if (!content)
     return 50 // default per spec
 
-  const event = db.select({ content: eventsState.content })
-    .from(eventsState)
-    .where(eq(eventsState.id, stateRow.eventId))
-    .get()
-
-  if (!event)
-    return 50
-
-  const content = event.content as Record<string, unknown>
   return (content[action] as number) ?? 50
 }
 
 // Check if a user is a member of a room
 export function getRoomMembership(roomId: string, userId: string): string | null {
+  const cacheKey = `rm:${roomId}:${userId}`
+  const cached = roomMembershipCache.get(cacheKey)
+  if (cached !== undefined)
+    return cached
+
   const member = db.select({ membership: roomMembers.membership })
     .from(roomMembers)
     .where(and(
@@ -279,33 +267,24 @@ export function getRoomMembership(roomId: string, userId: string): string | null
     ))
     .get()
 
-  return member?.membership ?? null
+  const result = member?.membership ?? null
+  roomMembershipCache.set(cacheKey, result)
+  return result
 }
 
 // Get join rule for a room
 export function getRoomJoinRule(roomId: string): string {
-  const stateRow = db.select({ eventId: currentRoomState.eventId })
-    .from(currentRoomState)
-    .where(and(
-      eq(currentRoomState.roomId, roomId),
-      eq(currentRoomState.type, 'm.room.join_rules'),
-      eq(currentRoomState.stateKey, ''),
-    ))
-    .get()
-
-  if (!stateRow)
-    return 'invite'
-
-  const event = db.select({ content: eventsState.content })
-    .from(eventsState)
-    .where(eq(eventsState.id, stateRow.eventId))
-    .get()
-
-  return ((event?.content as any)?.join_rule as string) ?? 'invite'
+  const content = getRoomStateContent(roomId, 'm.room.join_rules', '')
+  return (content?.join_rule as string) ?? 'invite'
 }
 
 // Helper to read a single state event's content for a room
 function getRoomStateContent(roomId: string, type: string, stateKey = ''): Record<string, unknown> | null {
+  const cacheKey = `rs:${roomId}:${type}:${stateKey}`
+  const cached = roomStateCache.get(cacheKey)
+  if (cached !== undefined)
+    return cached
+
   const row = db.select({ eventId: currentRoomState.eventId })
     .from(currentRoomState)
     .where(and(
@@ -314,13 +293,17 @@ function getRoomStateContent(roomId: string, type: string, stateKey = ''): Recor
       eq(currentRoomState.stateKey, stateKey),
     ))
     .get()
-  if (!row)
+  if (!row) {
+    roomStateCache.set(cacheKey, null)
     return null
+  }
   const event = db.select({ content: eventsState.content })
     .from(eventsState)
     .where(eq(eventsState.id, row.eventId))
     .get()
-  return (event?.content as Record<string, unknown>) ?? null
+  const result = (event?.content as Record<string, unknown>) ?? null
+  roomStateCache.set(cacheKey, result)
+  return result
 }
 
 export interface RoomSummary {

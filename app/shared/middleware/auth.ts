@@ -9,10 +9,22 @@ import { ensureAppServiceUser, getRegistrationByAsToken, isUserInNamespace } fro
 import { getOAuthAccessToken } from '@/oauth/accessTokenCache'
 import { isPathAllowedForUnverifiedDevice, normalizeDeviceTrustState } from '@/shared/middleware/deviceTrust'
 import { generateDeviceId } from '@/utils/tokens'
+import { TtlCache } from '@/utils/ttlCache'
 import { matrixError } from './errors'
 
 const deviceLastUpdated = new Map<string, number>()
 const DEVICE_UPDATE_INTERVAL = 5 * 60 * 1000 // 5 minutes
+
+const deviceTrustCache = new TtlCache<DeviceTrustState>(DEVICE_UPDATE_INTERVAL)
+const accountActiveCache = new TtlCache<boolean>(DEVICE_UPDATE_INTERVAL)
+
+export function invalidateDeviceTrustCache(userId: string, deviceId: string): void {
+  deviceTrustCache.invalidate(`${userId}:${deviceId}`)
+}
+
+export function invalidateAccountStatusCache(userId: string): void {
+  accountActiveCache.invalidate(userId)
+}
 
 const cleanupTimer = setInterval(() => {
   const cutoff = Date.now() - 30 * 60 * 1000
@@ -123,27 +135,45 @@ export async function authMiddleware(c: Context, next: Next) {
     await markAccountTokenUsed(token)
   }
 
-  const existingDevice = db.select({ trustState: devices.trustState })
-    .from(devices)
-    .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
-    .get()
-  if (existingDevice) {
-    trustState = normalizeDeviceTrustState(existingDevice.trustState)
+  const trustCacheKey = `${userId}:${deviceId}`
+  const cachedTrust = deviceTrustCache.get(trustCacheKey)
+  let existingDevice: { trustState: string | null } | undefined
+  if (cachedTrust !== undefined) {
+    trustState = cachedTrust
   }
   else {
-    // New device — trust automatically only if user has no devices AND no cross-signing keys
-    const anyDevice = db.select({ id: devices.id }).from(devices).where(eq(devices.userId, userId)).limit(1).get()
-    const hasCrossSigningKeys = !anyDevice && !!db.select({ userId: accountDataCrossSigning.userId })
-      .from(accountDataCrossSigning)
-      .where(and(eq(accountDataCrossSigning.userId, userId), eq(accountDataCrossSigning.keyType, 'master')))
+    existingDevice = db.select({ trustState: devices.trustState })
+      .from(devices)
+      .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
       .get()
-    trustState = !anyDevice && !hasCrossSigningKeys ? 'trusted' : 'unverified'
+    if (existingDevice) {
+      trustState = normalizeDeviceTrustState(existingDevice.trustState)
+    }
+    else {
+      // New device — trust automatically only if user has no devices AND no cross-signing keys
+      const anyDevice = db.select({ id: devices.id }).from(devices).where(eq(devices.userId, userId)).limit(1).get()
+      const hasCrossSigningKeys = !anyDevice && !!db.select({ userId: accountDataCrossSigning.userId })
+        .from(accountDataCrossSigning)
+        .where(and(eq(accountDataCrossSigning.userId, userId), eq(accountDataCrossSigning.keyType, 'master')))
+        .get()
+      trustState = !anyDevice && !hasCrossSigningKeys ? 'trusted' : 'unverified'
+    }
+    deviceTrustCache.set(trustCacheKey, trustState)
   }
 
   // Check account exists and is active
-  const account = db.select().from(accounts).where(eq(accounts.id, userId)).get()
-  if (account?.isDeactivated) {
-    return matrixError(c, 'M_USER_DEACTIVATED', 'This account has been deactivated')
+  const cachedDeactivated = accountActiveCache.get(userId)
+  if (cachedDeactivated !== undefined) {
+    if (cachedDeactivated) {
+      return matrixError(c, 'M_USER_DEACTIVATED', 'This account has been deactivated')
+    }
+  }
+  else {
+    const account = db.select({ isDeactivated: accounts.isDeactivated }).from(accounts).where(eq(accounts.id, userId)).get()
+    accountActiveCache.set(userId, !!account?.isDeactivated)
+    if (account?.isDeactivated) {
+      return matrixError(c, 'M_USER_DEACTIVATED', 'This account has been deactivated')
+    }
   }
 
   // Ensure device exists — needed for to-device delivery, keys/query, sync
@@ -156,7 +186,7 @@ export async function authMiddleware(c: Context, next: Next) {
       userId,
       id: deviceId,
       trustState,
-      trustReason: trustState === 'trusted' ? (existingDevice ? 'legacy_backfill' : 'first_device') : 'new_login_unverified',
+      trustReason: trustState === 'trusted' ? ((existingDevice || cachedTrust) ? 'legacy_backfill' : 'first_device') : 'new_login_unverified',
       ipAddress: c.req.header('x-forwarded-for') || null,
       lastSeenAt: new Date(),
     }).onConflictDoUpdate({

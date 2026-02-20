@@ -5,7 +5,7 @@ import { db } from '@/db'
 import { accountDataCrossSigning, devices, e2eeDeviceKeys, e2eeDeviceListChanges } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
 import { verifyEd25519Signature } from '@/shared/helpers/verifyKeys'
-import { authMiddleware } from '@/shared/middleware/auth'
+import { authMiddleware, invalidateDeviceTrustCache } from '@/shared/middleware/auth'
 import { generateUlid } from '@/utils/tokens'
 
 export const signaturesUploadRoute = new Hono<AuthEnv>()
@@ -96,6 +96,7 @@ signaturesUploadRoute.post('/', async (c) => {
                       eq(devices.trustState, 'unverified'),
                     ))
                     .run()
+                  invalidateDeviceTrustCache(userId, dk.deviceId)
                   logger.info('device_trust_promoted_by_self_signing', { userId, deviceId: dk.deviceId })
                   notifyUser(userId)
                 }

@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { db } from '@/db'
 import { devices, e2eeToDeviceMessages } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
-import { authMiddleware } from '@/shared/middleware/auth'
+import { authMiddleware, invalidateDeviceTrustCache } from '@/shared/middleware/auth'
 import { isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
 import { matrixError } from '@/shared/middleware/errors'
 
@@ -92,6 +92,7 @@ sendToDeviceRoute.put('/:eventType/:txnId', async (c) => {
             eq(devices.trustState, 'unverified'),
           ))
           .run()
+        invalidateDeviceTrustCache(auth.userId, targetDeviceId)
 
         // Wake newly verified device so it re-syncs with trusted access
         notifyUser(auth.userId)

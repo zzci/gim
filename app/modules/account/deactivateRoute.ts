@@ -6,7 +6,7 @@ import { accountDataCrossSigning, accounts, accountTokens, devices, e2eeDeviceKe
 import { invalidateAccountTokens } from '@/modules/account/tokenCache'
 import { createEvent } from '@/modules/message/service'
 import { invalidateOAuthAccessTokensByAccountId } from '@/oauth/accessTokenCache'
-import { authMiddleware } from '@/shared/middleware/auth'
+import { authMiddleware, invalidateAccountStatusCache } from '@/shared/middleware/auth'
 
 export const deactivateRoute = new Hono<AuthEnv>()
 deactivateRoute.use('/*', authMiddleware)
@@ -53,6 +53,7 @@ deactivateRoute.post('/', async (c) => {
 
   await invalidateAccountTokens(revokedTokens)
   await invalidateOAuthAccessTokensByAccountId(localpart)
+  invalidateAccountStatusCache(userId)
 
   for (const { roomId } of joinedRooms) {
     createEvent({

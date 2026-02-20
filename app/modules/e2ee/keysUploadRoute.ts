@@ -5,7 +5,7 @@ import { db } from '@/db'
 import { accountDataCrossSigning, accountTokens, devices, e2eeDeviceKeys, e2eeDeviceListChanges, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
 import { notifyUser } from '@/modules/sync/notifier'
 import { verifyDeviceKeySignature } from '@/shared/helpers/verifyKeys'
-import { authMiddleware } from '@/shared/middleware/auth'
+import { authMiddleware, invalidateDeviceTrustCache } from '@/shared/middleware/auth'
 import { matrixError } from '@/shared/middleware/errors'
 import { generateUlid } from '@/utils/tokens'
 
@@ -151,6 +151,7 @@ keysUploadRoute.post('/', async (c) => {
           eq(devices.trustState, 'unverified'),
         ))
         .run()
+      invalidateDeviceTrustCache(auth.userId, auth.deviceId)
     }
 
     if (keysChanged) {
