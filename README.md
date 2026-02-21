@@ -83,14 +83,6 @@ docker compose down
 
 #### 单独使用 Docker
 
-构建镜像：
-
-```bash
-docker build -t gim .
-```
-
-运行容器：
-
 ```bash
 docker run -d \
   --name gim \
@@ -103,7 +95,7 @@ docker run -d \
   -e IM_OIDC_CLIENT_ID=your-oidc-client-id \
   -e IM_OIDC_CLIENT_SECRET=your-oidc-client-secret \
   -e DB_PATH=/app/data/gim.db \
-  gim
+  zzci/gim
 ```
 
 #### 环境变量
