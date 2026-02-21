@@ -25,14 +25,17 @@ bun run dev                  # 启动开发服务器 (localhost:3000)
 cp .env.example .env
 ```
 
-编辑 `.env`，至少设置以下变量：
+编辑 `.env`，配置上游 OIDC 提供者信息：
 
 ```env
 IM_SERVER_NAME=your-domain.com
 IM_COOKIE_SECRET=your-secure-random-string
+IM_OIDC_ISSUER=https://your-oidc-issuer.com
 IM_OIDC_CLIENT_ID=your-oidc-client-id
 IM_OIDC_CLIENT_SECRET=your-oidc-client-secret
 ```
+
+> 本地开发可直接使用 `.env.example` 的默认值（Dex 本地 IdP），无需修改。
 
 2. 启动服务：
 
