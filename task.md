@@ -123,12 +123,17 @@
   - activeForm: Fixing real-time invite delivery in sync
   - createdAt: 2026-02-21 16:00
 
-- [ ] `GIM-026` **实现 Direct Room（DM）invite 事件携带 is_direct** `P1`
+- [x] `GIM-026` **实现 Direct Room（DM）invite 事件携带 is_direct** `P1`
   - description: 在 createRoom 和独立 invite 端点中，当房间为 direct 时，invite 的 m.room.member 事件 content 中添加 is_direct: true。遵循 Matrix 规范，客户端通过此字段自行维护 m.direct account data。修改 service.ts、membershipRoutes.ts、validation.ts。验收：创建 is_direct 房间后 invite 事件包含 is_direct: true，Bob 通过 sync 可见此字段。
   - activeForm: Implementing is_direct propagation in invite events
   - createdAt: 2026-02-21 16:00
 
-- [ ] `GIM-027` **修复登录限流：路由匹配错误 + 同 IP 多用户误封** `P0`
-  - description: 当前 `loginRateLimit` 存在两个问题：1) `app/index.ts:112` 使用 `app.use('/_matrix/client/v3/login/*', loginRateLimit)` 通配符仅匹配子路径，不匹配 `POST /login` 本身，导致主登录端点实际未被限流，而 SSO 回调路径 `/login/sso/*` 被误限；2) `loginRateLimit` 按 IP 限流（`keyBy: 'ip'`），NAT/公司网络/测试环境下多用户共享同一 IP，10 次/分钟配额极易耗尽导致正常用户无法登录。修复方案：将路由匹配改为精确路径 + SSO 子路径分别挂载；考虑 login 限流 key 改为 `ip + username` 组合（防止同 IP 不同用户互相影响），或提高默认额度；register 端点同理检查路径匹配。验收：同一 IP 下不同用户可独立登录不互相阻塞；暴力破解单一用户仍被限流。
-  - activeForm: 修复登录限流路由匹配和同 IP 多用户误封问题
+- [x] `GIM-027` **提高限流默认限额 + 修复反向代理 IP 检测** `P0`
+  - description: 1) 提高限流默认值：login 10→30/min、register 5→15/min、oauth 20→100/min；2) oauth 限额新增 `IM_RATE_LIMIT_OAUTH_MAX` 环境变量支持；3) `getClientIp()` 改为优先 `x-forwarded-for` → `x-real-ip` → Bun `getConnInfo()` socket IP 的 fallback 链，修复反向代理后所有请求共享 `unknown` 限流桶的问题。
+  - activeForm: 提高限流限额并修复反向代理 IP 检测
+  - createdAt: 2026-02-22 00:00
+
+- [ ] `GIM-028` **修复登录/注册限流路由匹配错误** `P1`
+  - description: `app/index.ts:112` 使用 `app.use('/_matrix/client/v3/login/*', loginRateLimit)` 通配符仅匹配子路径，不匹配 `POST /login` 本身，导致主登录端点实际未被独立限流（仅受全局 600/min），而 SSO 路径 `/login/sso/*` 被误限。register 同理。修复方案：将路由匹配改为精确路径挂载，或同时挂载根路径和子路径。验收：`POST /_matrix/client/v3/login` 触发独立限流，SSO 路径使用 oauth 限流而非 login 限流。
+  - activeForm: 修复登录注册限流路由匹配
   - createdAt: 2026-02-22 00:00

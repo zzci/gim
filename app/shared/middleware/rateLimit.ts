@@ -1,5 +1,6 @@
 import type { Context, Next } from 'hono'
 import { createHash } from 'node:crypto'
+import { getConnInfo } from 'hono/bun'
 import { serverName } from '@/config'
 import { getAccountToken } from '@/modules/account/tokenCache'
 import { getRegistrationByAsToken } from '@/modules/appservice/config'
@@ -58,7 +59,21 @@ async function buildRateLimitKey(c: Context, authHeader: string | undefined): Pr
 }
 
 function getClientIp(c: Context): string {
-  return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  // 1. Proxy headers (set by reverse proxy like nginx/caddy)
+  const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+  if (forwarded)
+    return forwarded
+  const realIp = c.req.header('x-real-ip')?.trim()
+  if (realIp)
+    return realIp
+  // 2. Socket-level IP via Bun (direct connection, no proxy)
+  try {
+    const info = getConnInfo(c)
+    if (info.remote.address)
+      return info.remote.address
+  }
+  catch {}
+  return 'unknown'
 }
 
 export interface RateLimitConfig {
