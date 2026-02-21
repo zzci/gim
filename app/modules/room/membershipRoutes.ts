@@ -110,7 +110,10 @@ roomMembershipRouter.post('/:roomId/invite', async (c) => {
     sender: auth.userId,
     type: 'm.room.member',
     stateKey: targetUserId,
-    content: { membership: 'invite' },
+    content: {
+      membership: 'invite',
+      ...(v.data.is_direct ? { is_direct: true } : {}),
+    },
   })
 
   return c.json({})

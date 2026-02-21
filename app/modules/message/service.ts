@@ -132,6 +132,11 @@ export async function createEvent(input: EventInput): Promise<MatrixEvent> {
   // Notify waiting sync connections — outside the transaction
   notifyRoomMembers(input.roomId).catch(() => {})
 
+  // Notify invited user directly (not a joined member yet, so notifyRoomMembers won't reach them)
+  if (input.type === 'm.room.member' && input.content.membership === 'invite' && input.stateKey) {
+    notifyUser(input.stateKey)
+  }
+
   // Record push notifications for room members
   try {
     await recordNotifications(event, input.roomId)

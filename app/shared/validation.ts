@@ -31,6 +31,7 @@ export const createRoomBody = z.object({
 export const membershipBody = z.object({
   user_id: matrixUserId,
   reason: z.string().max(1024).optional(),
+  is_direct: z.boolean().optional(),
 }).passthrough()
 
 export const loginBody = z.object({
