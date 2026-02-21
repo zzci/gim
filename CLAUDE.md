@@ -120,3 +120,49 @@ Key env vars (see `app/config.ts` and `.env.example` for full list):
 - `S3_*` — optional object storage; falls back to local disk
 - `IM_TURN_URIS`, `IM_TURN_SHARED_SECRET` — VoIP/TURN config
 - `IM_AS_REGISTRATION_DIR` — AppService registration YAML directory
+
+## Workflow (Superpowers Skills)
+
+This project follows a strict skill-driven workflow. Invoke the relevant `superpowers:*` skill via the Skill tool **before** taking action. These are not optional — if a skill applies, use it.
+
+### Skill Trigger Rules
+
+| Trigger | Skill to invoke |
+|---------|----------------|
+| Any creative work: new feature, component, or behavior change | `superpowers:brainstorming` → then `superpowers:writing-plans` |
+| Multi-step implementation from a spec/requirement | `superpowers:writing-plans` |
+| Executing a written plan | `superpowers:executing-plans` (or `superpowers:subagent-driven-development` if subagents available) |
+| Implementing any feature or bugfix | `superpowers:test-driven-development` — write failing test first, always |
+| Any bug, test failure, or unexpected behavior | `superpowers:systematic-debugging` — root cause before fixes |
+| About to claim work is done, commit, or create PR | `superpowers:verification-before-completion` — evidence before assertions |
+| Completed a major step, ready for review | `superpowers:requesting-code-review` |
+| Receiving code review feedback | `superpowers:receiving-code-review` |
+| 2+ independent tasks that can run in parallel | `superpowers:dispatching-parallel-agents` |
+| Feature work complete, ready to merge/PR | `superpowers:finishing-a-development-branch` |
+| Any non-trivial task (3+ steps or multi-file changes) | **Project Task Tracking** — use `TaskCreate` to create tasks, `TaskUpdate` to track progress |
+
+### Priority Order
+
+1. **Process skills first** (brainstorming, debugging) — determines HOW to approach
+2. **Implementation skills second** (TDD, executing-plans) — guides execution
+3. **Completion skills last** (verification, code-review) — validates results
+
+### Project Task Tracking (Mandatory)
+
+For any non-trivial task (3+ steps, multi-file changes, or complex logic), you **MUST** use the project task system:
+
+1. **Before starting work:** Use `TaskCreate` to break the work into discrete, trackable tasks with clear subjects and descriptions
+2. **While working:** Use `TaskUpdate` to mark tasks `in_progress` before starting and `completed` when done
+3. **Track progress:** Use `TaskList` to review overall progress and find next tasks
+4. **Dependencies:** Use `TaskUpdate` with `addBlockedBy`/`addBlocks` to express task ordering
+
+This ensures visibility into progress, prevents skipped steps, and enables parallel work delegation. Do NOT skip task tracking even for "obvious" multi-step work.
+
+### Non-Negotiable Rules
+
+- **No production code without a failing test first** (TDD)
+- **No fixes without root cause investigation** (systematic debugging)
+- **No completion claims without fresh verification evidence** (verification)
+- **No implementation without design approval** (brainstorming → writing-plans)
+- **No multi-step work without task tracking** (project tasks) — break work into tasks, track progress
+- If even 1% chance a skill applies, invoke it — don't rationalize skipping
