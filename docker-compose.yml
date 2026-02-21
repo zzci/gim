@@ -10,13 +10,6 @@ services:
       - NODE_ENV=production
       - DB_PATH=/app/data/gim.db
       - IM_AS_REGISTRATION_DIR=/app/data/appservices
-    depends_on:
-      dex:
-        condition: service_healthy
-        required: false
-      redis:
-        condition: service_started
-        required: false
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
