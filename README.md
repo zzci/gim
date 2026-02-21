@@ -40,15 +40,25 @@ IM_OIDC_CLIENT_SECRET=your-oidc-client-secret
 docker compose up -d
 ```
 
-服务将在 `http://localhost:3000` 启动，数据持久化在 Docker volume `gim-data` 中。
+服务将在 `http://localhost:3000` 启动，数据持久化在 Docker volume `gim-data` 中。所有 `.env` 中的变量会自动传入容器。
 
-3. 查看日志：
+3. 启用 Redis 缓存（可选）：
+
+```bash
+# .env 中设置：
+# IM_CACHE_DRIVER=redis
+# REDIS_URL=redis://redis:6379
+
+docker compose --profile redis up -d
+```
+
+4. 查看日志：
 
 ```bash
 docker compose logs -f gim
 ```
 
-4. 停止服务：
+5. 停止服务：
 
 ```bash
 docker compose down

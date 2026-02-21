@@ -2,17 +2,18 @@ services:
   gim:
     build: .
     ports:
-      - "3000:3000"
+      - "${IM_PORT:-3000}:3000"
     volumes:
       - gim-data:/app/data
+    env_file: .env
     environment:
       - NODE_ENV=production
-      - IM_SERVER_NAME=${IM_SERVER_NAME:-localhost}
-      - IM_COOKIE_SECRET=${IM_COOKIE_SECRET}
-      - IM_OIDC_ISSUER=${IM_OIDC_ISSUER:-https://login.gid.io/oidc}
-      - IM_OIDC_CLIENT_ID=${IM_OIDC_CLIENT_ID}
-      - IM_OIDC_CLIENT_SECRET=${IM_OIDC_CLIENT_SECRET}
       - DB_PATH=/app/data/gim.db
+      - IM_AS_REGISTRATION_DIR=/app/data/appservices
+    depends_on:
+      redis:
+        condition: service_started
+        required: false
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
@@ -21,5 +22,19 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    profiles:
+      - redis
+
 volumes:
   gim-data:
+  redis-data:
