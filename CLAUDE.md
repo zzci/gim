@@ -196,3 +196,11 @@ This project follows a strict skill-driven workflow. Invoke the relevant `superp
 - **No completion claims without fresh verification evidence** (verification)
 - **No implementation without design approval** (brainstorming → writing-plans)
 - If even 1% chance a skill applies, invoke it — don't rationalize skipping
+
+## Project Task
+
+Use the /ptask skill to manage all tasks.
+- Read `task.md` before starting work; create one if it does not exist.
+- Every change, new feature, or bug fix must have a corresponding entry in `task.md`.
+- Task IDs use `PREFIX-NNN` format (e.g. `GIM-001`); never skip or reuse IDs.
+- Update status markers in place after completing a task.
