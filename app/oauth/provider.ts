@@ -388,10 +388,10 @@ oauthApp.get('/auth/callback', async (c) => {
   })
 
   const userinfo = await userinfoRes.json() as Record<string, unknown>
-  const localpart = userinfo.username as string | undefined
+  const localpart = (userinfo.preferred_username || userinfo.username) as string | undefined
 
   if (!localpart) {
-    logger.error('Upstream userinfo missing username field:', JSON.stringify(userinfo))
+    logger.error('Upstream userinfo missing username/preferred_username field:', JSON.stringify(userinfo))
     return c.json({ errcode: 'M_UNKNOWN', error: 'Upstream provider did not return a username' }, 502)
   }
 

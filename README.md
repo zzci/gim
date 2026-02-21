@@ -42,7 +42,30 @@ docker compose up -d
 
 服务将在 `http://localhost:3000` 启动，数据持久化在 Docker volume `gim-data` 中。所有 `.env` 中的变量会自动传入容器。
 
-3. 启用 Redis 缓存（可选）：
+3. 使用本地 Dex IdP（可选）：
+
+生产环境使用 `login.gid.io` 作为上游 IdP。本地开发/测试时，可启用内置的 [Dex](https://dexidp.io/) 作为本地 IdP：
+
+```bash
+# .env 中设置：
+# IM_OIDC_ISSUER=http://localhost:5556/dex
+# IM_OIDC_CLIENT_ID=gim
+# IM_OIDC_CLIENT_SECRET=gim-dev-secret
+
+docker compose --profile dex up -d
+```
+
+Dex 默认配置（`dex.yaml`）包含一个测试账号：
+
+| 字段 | 值 |
+|------|----|
+| Email | `admin@example.com` |
+| 密码 | `password` |
+| 用户名 | `admin` |
+
+Dex 管理界面访问：`http://localhost:5556/dex`
+
+4. 启用 Redis 缓存（可选）：
 
 ```bash
 # .env 中设置：
@@ -52,13 +75,19 @@ docker compose up -d
 docker compose --profile redis up -d
 ```
 
-4. 查看日志：
+多个 profile 可同时启用：
+
+```bash
+docker compose --profile dex --profile redis up -d
+```
+
+5. 查看日志：
 
 ```bash
 docker compose logs -f gim
 ```
 
-5. 停止服务：
+6. 停止服务：
 
 ```bash
 docker compose down

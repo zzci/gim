@@ -11,6 +11,9 @@ services:
       - DB_PATH=/app/data/gim.db
       - IM_AS_REGISTRATION_DIR=/app/data/appservices
     depends_on:
+      dex:
+        condition: service_healthy
+        required: false
       redis:
         condition: service_started
         required: false
@@ -21,6 +24,24 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+
+  dex:
+    image: dexidp/dex:latest
+    command: ["dex", "serve", "/etc/dex/dex.yaml"]
+    volumes:
+      - ./dex.yaml:/etc/dex/dex.yaml:ro
+      - dex-data:/var/dex
+    ports:
+      - "${DEX_PORT:-5556}:5556"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5556/dex/.well-known/openid-configuration"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    profiles:
+      - dex
 
   redis:
     image: redis:7-alpine
@@ -37,4 +58,5 @@ services:
 
 volumes:
   gim-data:
+  dex-data:
   redis-data:
