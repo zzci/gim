@@ -182,7 +182,6 @@ This project follows a strict skill-driven workflow. Invoke the relevant `superp
 | Receiving code review feedback | `superpowers:receiving-code-review` |
 | 2+ independent tasks that can run in parallel | `superpowers:dispatching-parallel-agents` |
 | Feature work complete, ready to merge/PR | `superpowers:finishing-a-development-branch` |
-| Any non-trivial task (3+ steps or multi-file changes) | **Project Task Tracking** — 读取 `task.md` → `TaskCreate` 同步到会话 → 完成后写回 `task.md` |
 
 ### Priority Order
 
@@ -190,56 +189,10 @@ This project follows a strict skill-driven workflow. Invoke the relevant `superp
 2. **Implementation skills second** (TDD, executing-plans) — guides execution
 3. **Completion skills last** (verification, code-review) — validates results
 
-### Project Task Tracking (Mandatory)
-
-持久化任务文件: `task.md`（项目根目录）。所有任务必须在此文件中记录并与会话工具同步。
-
-#### 会话开始
-
-1. **读取 `task.md`** — 了解当前项目状态、进行中任务、待办优先级
-2. **同步到会话** — 将本次要处理的任务用 `TaskCreate` 创建会话级任务
-3. **认领任务** — 从 `task.md` 的「待办」中选择任务，优先处理 P0 > P1 > P2 > P3
-
-#### 工作进行中
-
-1. **标记状态** — 开始前 `TaskUpdate` 设 `in_progress`，同时更新 `task.md` 中对应项为 `[-]`
-2. **拆分子任务** — 复杂任务拆分为子任务，用 `TaskCreate` 创建并在 `task.md` 中缩进记录
-3. **依赖关系** — 用 `TaskUpdate` 的 `addBlockedBy`/`addBlocks` 表达依赖，`task.md` 中用 `blocked by: #描述` 标注
-4. **新发现的任务** — 工作中发现的新任务立即追加到 `task.md` 对应优先级分类下
-
-#### 任务完成
-
-1. **标记完成** — `TaskUpdate` 设 `completed`，同时更新 `task.md` 中对应项为 `[x]` 并移到「已完成」
-2. **更新日期** — 修改 `task.md` 顶部的更新日期
-
-#### 会话结束
-
-1. **同步回 `task.md`** — 将所有会话中的任务状态变更写回 `task.md`
-2. **未完成任务** — 保留在「进行中」或「待办」，确保下次会话可以继续
-
-#### task.md 状态标记
-
-| 标记 | 含义 | 对应 TaskUpdate status |
-|------|------|----------------------|
-| `[ ]` | 待办 | `pending` |
-| `[-]` | 进行中 | `in_progress` |
-| `[x]` | 已完成 | `completed` |
-| `[~]` | 关闭/不做 | — |
-
-#### task.md 优先级
-
-| 标签 | 含义 |
-|------|------|
-| `P0` | 阻塞性问题，立即处理 |
-| `P1` | 高优先级，当前迭代 |
-| `P2` | 中优先级，下个迭代 |
-| `P3` | 低优先级，待规划 |
-
 ### Non-Negotiable Rules
 
 - **No production code without a failing test first** (TDD)
 - **No fixes without root cause investigation** (systematic debugging)
 - **No completion claims without fresh verification evidence** (verification)
 - **No implementation without design approval** (brainstorming → writing-plans)
-- **No multi-step work without task tracking** — 必须读取 `task.md`，同步会话任务，完成后写回
 - If even 1% chance a skill applies, invoke it — don't rationalize skipping
