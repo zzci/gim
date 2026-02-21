@@ -123,7 +123,7 @@
   - activeForm: Fixing real-time invite delivery in sync
   - createdAt: 2026-02-21 16:00
 
-- [ ] `GIM-026` **实现 Direct Room（DM）invite 事件携带 is_direct** `P1`
+- [x] `GIM-026` **实现 Direct Room（DM）invite 事件携带 is_direct** `P1`
   - description: 在 createRoom 和独立 invite 端点中，当房间为 direct 时，invite 的 m.room.member 事件 content 中添加 is_direct: true。遵循 Matrix 规范，客户端通过此字段自行维护 m.direct account data。修改 service.ts、membershipRoutes.ts、validation.ts。验收：创建 is_direct 房间后 invite 事件包含 is_direct: true，Bob 通过 sync 可见此字段。
   - activeForm: Implementing is_direct propagation in invite events
   - createdAt: 2026-02-21 16:00
