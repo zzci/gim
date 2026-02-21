@@ -118,7 +118,7 @@
   - createdAt: 2026-02-21 00:00
   - blocked by: GIM-021, GIM-022
 
-- [ ] `GIM-025` **修复 Invite 消息未实时推送到 sync** `P1`
+- [x] `GIM-025` **修复 Invite 消息未实时推送到 sync** `P1`
   - description: 当用户被邀请加入房间时，invite 事件没有实时传递给被邀请方的 sync long-poll，需要等到当前 sync 超时后下一次轮询才能收到。根因可能是 `notifyUser()` 在处理 invite 事件时未被调用，或 invite 写入后未正确触发 sync notifier。需要排查 `app/modules/room/` 中 invite 相关路由（如 `inviteRoute.ts`）在写入 invite 事件后是否调用了 `notifyUser(targetUserId)`，以及 `app/modules/sync/notifier.ts` 是否正确唤醒被邀请用户的 long-poll。验收：邀请用户后，被邀请方的 sync long-poll 立即返回包含 invite 的响应，无需等待超时。
   - activeForm: Fixing real-time invite delivery in sync
   - createdAt: 2026-02-21 16:00
