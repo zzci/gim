@@ -44,7 +44,7 @@ docker compose up -d
 
 3. 使用本地 Dex IdP（可选）：
 
-生产环境使用 `login.gid.io` 作为上游 IdP。本地开发/测试时，可启用内置的 [Dex](https://dexidp.io/) 作为本地 IdP：
+本地开发/测试时，可启用内置的 [Dex](https://dexidp.io/) 作为本地 IdP，无需外部 OIDC 服务：
 
 ```bash
 # .env 中设置：
@@ -112,7 +112,7 @@ docker run -d \
   -e NODE_ENV=production \
   -e IM_SERVER_NAME=your-domain.com \
   -e IM_COOKIE_SECRET=your-secure-random-string \
-  -e IM_OIDC_ISSUER=https://login.gid.io/oidc \
+  -e IM_OIDC_ISSUER=https://your-oidc-issuer.com \
   -e IM_OIDC_CLIENT_ID=your-oidc-client-id \
   -e IM_OIDC_CLIENT_SECRET=your-oidc-client-secret \
   -e DB_PATH=/app/data/gim.db \
@@ -125,7 +125,7 @@ docker run -d \
 |------|--------|------|
 | `IM_SERVER_NAME` | `localhost` | Matrix 服务器域名 |
 | `IM_COOKIE_SECRET` | - | Cookie 签名密钥（生产环境必填） |
-| `IM_OIDC_ISSUER` | `https://login.gid.io/oidc` | 上游 OIDC 提供者 |
+| `IM_OIDC_ISSUER` | - | 上游 OIDC 提供者 |
 | `IM_OIDC_CLIENT_ID` | - | OIDC 客户端 ID |
 | `IM_OIDC_CLIENT_SECRET` | - | OIDC 客户端密钥 |
 | `DB_PATH` | `data/gim.db` | SQLite 数据库路径 |

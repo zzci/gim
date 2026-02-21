@@ -14,8 +14,8 @@ if (cookieSecret === 'dev-cookie-secret') {
   }
 }
 
-// Upstream OIDC provider (e.g. Logto at login.gid.io)
-const upstreamIssuer = process.env.IM_OIDC_ISSUER || 'https://login.gid.io/oidc'
+// Upstream OIDC provider
+const upstreamIssuer = process.env.IM_OIDC_ISSUER || ''
 const upstreamClientId = process.env.IM_OIDC_CLIENT_ID || ''
 const upstreamClientSecret = process.env.IM_OIDC_CLIENT_SECRET || ''
 
