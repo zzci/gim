@@ -23,21 +23,21 @@ staticClients:
 
 enablePasswordDB: true
 
-# Test accounts (all passwords: password)
+# Test accounts (all passwords: gim)
 staticPasswords:
   - email: admin@example.com
-    hash: $2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W
+    hash: $2b$10$IpZl6WBsB.z0I1QaIpnRn.O5fcTKyQ4eiFvtW5ZXewfQBCRfdBFVm
     username: admin
     userID: 08a8684b-db88-4b73-90a9-3cd1661f5466
   - email: alice@example.com
-    hash: $2b$10$FrSBmn14WRPooGapWP2DMuGJX57ZcO1a2actE3/EwRswkPHCgHzie
+    hash: $2b$10$f0zfKJaM3KFdIPnaPsPhgecENEM55YOHHSpw9ejOfNT8ufucUeItK
     username: alice
     userID: 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d
   - email: bob@example.com
-    hash: $2b$10$Rn.38XPsbqm5OxtwX68sbeloiuAzB0YiTpwhW8bdmpMTypvyLZvMe
+    hash: $2b$10$6nDAb1EqBy9L2BIokzg.B.upzMtsOTPAOPdgJm6YaOmOgB8ApZJAy
     username: bob
     userID: 2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e
   - email: charlie@example.com
-    hash: $2b$10$R2YVjGqoSNnHGF1r95Uk6.AYETtul8/MyzVSocGJFCG1hA5SrxvZ.
+    hash: $2b$10$3D9waKZSBkzvuF7NrY6Hxu8lH79SwpAZ6GJinpLG8gM05fN/G7R46
     username: charlie
     userID: 3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f
