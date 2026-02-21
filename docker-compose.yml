@@ -1,6 +1,6 @@
 services:
   gim:
-    build: .
+    image: zzci/gim
     ports:
       - "${IM_PORT:-3000}:3000"
     volumes:
