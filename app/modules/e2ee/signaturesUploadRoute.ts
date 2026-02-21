@@ -9,6 +9,26 @@ import { verifyEd25519Signature } from '@/shared/helpers/verifyKeys'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { generateUlid } from '@/utils/tokens'
 
+/**
+ * Check if incoming signatures contain any entries not already present
+ * in the existing signature map. Short-circuits on first new entry.
+ */
+function hasNewSignatures(
+  existing: Record<string, Record<string, string>>,
+  incoming: Record<string, Record<string, string>>,
+): boolean {
+  for (const [sigUserId, sigs] of Object.entries(incoming)) {
+    const existingForUser = existing[sigUserId]
+    if (!existingForUser)
+      return true
+    for (const [keyId, value] of Object.entries(sigs)) {
+      if (existingForUser[keyId] !== value)
+        return true
+    }
+  }
+  return false
+}
+
 export const signaturesUploadRoute = new Hono<AuthEnv>()
 signaturesUploadRoute.use('/*', authMiddleware)
 
@@ -27,7 +47,7 @@ signaturesUploadRoute.post('/', async (c) => {
       continue
     }
 
-    let anySuccess = false
+    let anyChanged = false
     for (const [keyId, signedObject] of Object.entries(keyMap)) {
       const newSignatures = signedObject.signatures || {}
       const deviceIdCandidates = [keyId]
@@ -47,10 +67,16 @@ signaturesUploadRoute.post('/', async (c) => {
       )).get()
 
       if (dk) {
-        const merged = { ...(dk.signatures as Record<string, Record<string, string>>) }
+        const existingSigs = dk.signatures as Record<string, Record<string, string>>
+        if (!hasNewSignatures(existingSigs, newSignatures as Record<string, Record<string, string>>)) {
+          continue
+        }
+
+        const merged = { ...existingSigs }
         for (const [sigUserId, sigs] of Object.entries(newSignatures) as [string, Record<string, string>][]) {
           merged[sigUserId] = { ...(merged[sigUserId] || {}), ...sigs }
         }
+
         db.update(e2eeDeviceKeys)
           .set({ signatures: merged })
           .where(and(eq(e2eeDeviceKeys.userId, userId), eq(e2eeDeviceKeys.deviceId, dk.deviceId)))
@@ -106,7 +132,7 @@ signaturesUploadRoute.post('/', async (c) => {
           }
         }
 
-        anySuccess = true
+        anyChanged = true
         continue
       }
 
@@ -120,10 +146,17 @@ signaturesUploadRoute.post('/', async (c) => {
         const keyData = csk.keyData as any
         const keys = keyData.keys || {}
         if (Object.keys(keys).some((k: string) => k === keyId || k === `ed25519:${keyId}` || keyId === `ed25519:${k.split(':').pop()}`)) {
-          const mergedSigs = { ...(keyData.signatures || {}) }
+          const existingCsSigs = (keyData.signatures || {}) as Record<string, Record<string, string>>
+          if (!hasNewSignatures(existingCsSigs, newSignatures as Record<string, Record<string, string>>)) {
+            matched = true
+            break
+          }
+
+          const mergedSigs = { ...existingCsSigs }
           for (const [sigUserId, sigs] of Object.entries(newSignatures) as [string, Record<string, string>][]) {
             mergedSigs[sigUserId] = { ...(mergedSigs[sigUserId] || {}), ...sigs }
           }
+
           db.update(accountDataCrossSigning)
             .set({ keyData: { ...keyData, signatures: mergedSigs } })
             .where(and(
@@ -133,7 +166,7 @@ signaturesUploadRoute.post('/', async (c) => {
             .run()
           logger.debug('signatures_upload_applied_cross_signing_key', { userId, keyId, matchedKeyType: csk.keyType })
           matched = true
-          anySuccess = true
+          anyChanged = true
           break
         }
       }
@@ -146,7 +179,7 @@ signaturesUploadRoute.post('/', async (c) => {
       }
     }
 
-    if (anySuccess) {
+    if (anyChanged) {
       db.insert(e2eeDeviceListChanges).values({
         userId,
         ulid: generateUlid(),
