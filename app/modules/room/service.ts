@@ -209,6 +209,7 @@ export async function createRoom(opts: CreateRoomOptions): Promise<string> {
         stateKey: userId,
         content: {
           membership: 'invite',
+          ...(opts.isDirect ? { is_direct: true } : {}),
         },
       })
     }
