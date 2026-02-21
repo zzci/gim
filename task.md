@@ -1,6 +1,6 @@
 # GIM — 任务清单
 
-> 更新日期: 2026-02-21
+> 更新日期: 2026-02-22
 
 ## 使用规范
 
@@ -117,3 +117,8 @@
   - activeForm: Writing E2EE edge case integration tests
   - createdAt: 2026-02-21 00:00
   - blocked by: GIM-021, GIM-022
+
+- [ ] `GIM-025` **修复登录限流：路由匹配错误 + 同 IP 多用户误封** `P0`
+  - description: 当前 `loginRateLimit` 存在两个问题：1) `app/index.ts:112` 使用 `app.use('/_matrix/client/v3/login/*', loginRateLimit)` 通配符仅匹配子路径，不匹配 `POST /login` 本身，导致主登录端点实际未被限流，而 SSO 回调路径 `/login/sso/*` 被误限；2) `loginRateLimit` 按 IP 限流（`keyBy: 'ip'`），NAT/公司网络/测试环境下多用户共享同一 IP，10 次/分钟配额极易耗尽导致正常用户无法登录。修复方案：将路由匹配改为精确路径 + SSO 子路径分别挂载；考虑 login 限流 key 改为 `ip + username` 组合（防止同 IP 不同用户互相影响），或提高默认额度；register 端点同理检查路径匹配。验收：同一 IP 下不同用户可独立登录不互相阻塞；暴力破解单一用户仍被限流。
+  - activeForm: 修复登录限流路由匹配和同 IP 多用户误封问题
+  - createdAt: 2026-02-22 00:00
