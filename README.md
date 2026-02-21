@@ -69,29 +69,13 @@ Dex 默认配置（`dex.yaml`）包含以下测试账号（密码均为 `gim`）
 
 Dex 管理界面访问：`http://localhost:5556/dex`
 
-4. 启用 Redis 缓存（可选）：
-
-```bash
-# .env 中设置：
-# IM_CACHE_DRIVER=redis
-# REDIS_URL=redis://redis:6379
-
-docker compose --profile redis up -d
-```
-
-多个 profile 可同时启用：
-
-```bash
-docker compose --profile dex --profile redis up -d
-```
-
-5. 查看日志：
+4. 查看日志：
 
 ```bash
 docker compose logs -f gim
 ```
 
-6. 停止服务：
+5. 停止服务：
 
 ```bash
 docker compose down
@@ -132,8 +116,6 @@ docker run -d \
 | `IM_OIDC_CLIENT_ID` | - | OIDC 客户端 ID |
 | `IM_OIDC_CLIENT_SECRET` | - | OIDC 客户端密钥 |
 | `DB_PATH` | `data/gim.db` | SQLite 数据库路径 |
-| `IM_CACHE_DRIVER` | `memory` | 缓存驱动：`memory` 或 `redis` |
-| `REDIS_URL` | `redis://localhost:6379` | Redis 地址（缓存驱动为 redis 时需要） |
 | `IM_LOG_FORMAT` | `cli` / `json` | 日志格式（dev: cli, prod: json） |
 | `IM_LOG_LEVEL` | `debug` / `info` | 日志级别（dev: debug, prod: info） |
 
