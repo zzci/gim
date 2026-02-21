@@ -42,6 +42,7 @@ export const loginBody = z.object({
 
 export const deviceUpdateBody = z.object({
   display_name: displayName.optional(),
+  trust_state: z.enum(['blocked', 'unverified']).optional(),
 }).passthrough()
 
 export function validate<T>(c: Context, schema: z.ZodType<T>, data: unknown): { success: true, data: T } | { success: false, response: Response } {

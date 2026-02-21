@@ -4,6 +4,7 @@ import { Hono } from 'hono'
 import { db } from '@/db'
 import { devices, e2eeToDeviceMessages } from '@/db/schema'
 import { invalidateTrustCache } from '@/models/device'
+import { clearVerificationSession, isVerificationExpired, trackVerificationRequest } from '@/modules/e2ee/verificationSessions'
 import { notifyUser } from '@/modules/sync/notifier'
 import { authMiddleware } from '@/shared/middleware/auth'
 import { isVerificationToDeviceType } from '@/shared/middleware/deviceTrust'
@@ -23,6 +24,30 @@ sendToDeviceRoute.put('/:eventType/:txnId', async (c) => {
     return matrixError(c, 'M_FORBIDDEN', 'Device is not verified', { errcode_detail: 'M_DEVICE_UNVERIFIED' })
   }
 
+  // Verification session timeout tracking
+  if (verificationEvent) {
+    // Extract transaction_id from the first message content
+    const firstContent = Object.values(messages as Record<string, Record<string, any>>)[0]
+    const firstDevice = firstContent ? Object.values(firstContent)[0] : null
+    const transactionId = firstDevice?.transaction_id as string | undefined
+
+    if (transactionId) {
+      if (eventType === 'm.key.verification.request') {
+        const firstTargetUser = Object.keys(messages)[0]
+        if (firstTargetUser)
+          trackVerificationRequest(transactionId, auth.userId, firstTargetUser)
+      }
+      else if (eventType === 'm.key.verification.done' || eventType === 'm.key.verification.cancel') {
+        clearVerificationSession(transactionId)
+      }
+      else if (isVerificationExpired(transactionId)) {
+        // Drop expired verification events silently
+        logger.debug('verification_session_expired', { transactionId, eventType })
+        return c.json({})
+      }
+    }
+  }
+
   const notifiedUsers = new Set<string>()
 
   for (const [userId, deviceMap] of Object.entries(messages) as [string, Record<string, any>][]) {
@@ -35,6 +60,9 @@ sendToDeviceRoute.put('/:eventType/:txnId', async (c) => {
             .from(devices)
             .where(and(eq(devices.userId, userId), eq(devices.id, d.id)))
             .get()
+          // Skip blocked devices entirely (including verification events)
+          if (target?.trustState === 'blocked')
+            continue
           if (target?.trustState === 'unverified' && !verificationEvent)
             continue
 
@@ -54,6 +82,9 @@ sendToDeviceRoute.put('/:eventType/:txnId', async (c) => {
         .from(devices)
         .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
         .get()
+      // Skip blocked devices entirely (including verification events)
+      if (target?.trustState === 'blocked')
+        continue
       if (target?.trustState === 'unverified' && !verificationEvent)
         continue
 

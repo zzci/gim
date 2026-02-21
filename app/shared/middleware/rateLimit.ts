@@ -57,6 +57,53 @@ async function buildRateLimitKey(c: Context, authHeader: string | undefined): Pr
   return `anon_route:${parts || 'root'}`
 }
 
+function getClientIp(c: Context): string {
+  return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+}
+
+export interface RateLimitConfig {
+  windowMs?: number
+  maxRequests: number
+  keyPrefix: string
+  keyBy?: 'ip' | 'auth'
+}
+
+export function createRateLimitMiddleware(config: RateLimitConfig) {
+  const windowMs = config.windowMs ?? WINDOW_MS
+
+  return async function rateLimitHandler(c: Context, next: Next) {
+    let key: string
+    if (config.keyBy === 'ip') {
+      key = `${config.keyPrefix}:${getClientIp(c)}`
+    }
+    else {
+      const authHeader = c.req.header('Authorization')
+      const base = await buildRateLimitKey(c, authHeader)
+      key = `${config.keyPrefix}:${base}`
+    }
+
+    const now = Date.now()
+    const entry = windows.get(key)
+
+    if (!entry || now > entry.resetAt) {
+      windows.set(key, { count: 1, resetAt: now + windowMs })
+    }
+    else {
+      entry.count++
+      if (entry.count > config.maxRequests) {
+        c.header('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)))
+        return c.json({
+          errcode: 'M_LIMIT_EXCEEDED',
+          error: 'Too many requests',
+          retry_after_ms: entry.resetAt - now,
+        }, 429)
+      }
+    }
+
+    await next()
+  }
+}
+
 export async function rateLimitMiddleware(c: Context, next: Next) {
   // Skip rate limiting for application services (unless explicitly rate_limited)
   const authHeader = c.req.header('Authorization')
@@ -90,3 +137,13 @@ export async function rateLimitMiddleware(c: Context, next: Next) {
 
   await next()
 }
+
+// Pre-built rate limiters for sensitive endpoints
+const rateLimitLoginMax = Number(process.env.IM_RATE_LIMIT_LOGIN_MAX) || 10
+const rateLimitRegisterMax = Number(process.env.IM_RATE_LIMIT_REGISTER_MAX) || 5
+
+export const loginRateLimit = createRateLimitMiddleware({ maxRequests: rateLimitLoginMax, keyPrefix: 'rl:login', keyBy: 'ip' })
+export const registerRateLimit = createRateLimitMiddleware({ maxRequests: rateLimitRegisterMax, keyPrefix: 'rl:register', keyBy: 'ip' })
+export const oauthRateLimit = createRateLimitMiddleware({ maxRequests: 20, keyPrefix: 'rl:oauth', keyBy: 'ip' })
+export const keysUploadRateLimit = createRateLimitMiddleware({ maxRequests: 60, keyPrefix: 'rl:keys_upload' })
+export const keysClaimRateLimit = createRateLimitMiddleware({ maxRequests: 120, keyPrefix: 'rl:keys_claim' })

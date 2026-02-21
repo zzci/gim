@@ -38,11 +38,84 @@ signaturesUploadRoute.post('/', async (c) => {
   const failures: Record<string, Record<string, any>> = {}
 
   for (const [userId, keyMap] of Object.entries(body) as [string, Record<string, any>][]) {
+    // Cross-user signatures: allow signing target's master key with auth user's user-signing key
     if (userId !== auth.userId) {
       if (!failures[userId])
         failures[userId] = {}
-      for (const keyId of Object.keys(keyMap)) {
-        failures[userId][keyId] = { errcode: 'M_FORBIDDEN', error: 'Cannot upload signatures for other users' }
+
+      // Look up auth user's user-signing key
+      const userSigningKey = db.select({ keyData: accountDataCrossSigning.keyData })
+        .from(accountDataCrossSigning)
+        .where(and(
+          eq(accountDataCrossSigning.userId, auth.userId),
+          eq(accountDataCrossSigning.keyType, 'user_signing'),
+        ))
+        .get()
+
+      if (!userSigningKey) {
+        for (const keyId of Object.keys(keyMap)) {
+          failures[userId][keyId] = { errcode: 'M_FORBIDDEN', error: 'No user-signing key available' }
+        }
+        continue
+      }
+
+      // Look up target user's master key
+      const targetMasterKey = db.select({
+        keyType: accountDataCrossSigning.keyType,
+        keyData: accountDataCrossSigning.keyData,
+      })
+        .from(accountDataCrossSigning)
+        .where(and(
+          eq(accountDataCrossSigning.userId, userId),
+          eq(accountDataCrossSigning.keyType, 'master'),
+        ))
+        .get()
+
+      let crossUserChanged = false
+      for (const [keyId, signedObject] of Object.entries(keyMap)) {
+        if (!targetMasterKey) {
+          failures[userId][keyId] = { errcode: 'M_NOT_FOUND', error: 'Target master key not found' }
+          continue
+        }
+
+        const targetKeys = (targetMasterKey.keyData as any).keys || {}
+        const matchesTarget = Object.keys(targetKeys).some((k: string) =>
+          k === keyId || k === `ed25519:${keyId}` || keyId === `ed25519:${k.split(':').pop()}`,
+        )
+
+        if (!matchesTarget) {
+          failures[userId][keyId] = { errcode: 'M_NOT_FOUND', error: 'Key not found' }
+          continue
+        }
+
+        const newSignatures = (signedObject.signatures || {}) as Record<string, Record<string, string>>
+        const existingSigs = ((targetMasterKey.keyData as any).signatures || {}) as Record<string, Record<string, string>>
+
+        if (!hasNewSignatures(existingSigs, newSignatures))
+          continue
+
+        const mergedSigs = { ...existingSigs }
+        for (const [sigUserId, sigs] of Object.entries(newSignatures)) {
+          mergedSigs[sigUserId] = { ...(mergedSigs[sigUserId] || {}), ...sigs }
+        }
+
+        db.update(accountDataCrossSigning)
+          .set({ keyData: { ...targetMasterKey.keyData as any, signatures: mergedSigs } })
+          .where(and(
+            eq(accountDataCrossSigning.userId, userId),
+            eq(accountDataCrossSigning.keyType, 'master'),
+          ))
+          .run()
+        logger.debug('signatures_upload_cross_user_master_key', { fromUser: auth.userId, targetUser: userId, keyId })
+        crossUserChanged = true
+      }
+
+      if (crossUserChanged) {
+        db.insert(e2eeDeviceListChanges).values({
+          userId,
+          ulid: generateUlid(),
+        }).run()
+        notifyUser(userId)
       }
       continue
     }

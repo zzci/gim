@@ -28,9 +28,10 @@ import { threadRoute } from '@/modules/thread'
 import { rtcTransportsRoute, turnServerRoute } from '@/modules/voip'
 import { oauthApp } from '@/oauth/provider'
 import { formatPrometheusMetrics } from '@/shared/metrics'
-import { rateLimitMiddleware } from '@/shared/middleware/rateLimit'
+import { keysClaimRateLimit, keysUploadRateLimit, loginRateLimit, oauthRateLimit, rateLimitMiddleware, registerRateLimit } from '@/shared/middleware/rateLimit'
 import { requestIdMiddleware } from '@/shared/middleware/requestId'
 import { requestLogMiddleware } from '@/shared/middleware/requestLog'
+import { securityHeadersMiddleware } from '@/shared/middleware/securityHeaders'
 import { buildInfo, corsOrigins, listenHost, listenPort, serverName, version } from './config'
 
 import '@/global'
@@ -51,7 +52,10 @@ async function run() {
     maxAge: 86400,
   }))
 
-  // 3. Structured request logging (after next — captures status/duration)
+  // 3. Security response headers
+  app.use('/*', securityHeadersMiddleware)
+
+  // 4. Structured request logging (after next — captures status/duration)
   app.use('/*', requestLogMiddleware)
 
   // Rate limiting on Matrix API + OAuth
@@ -89,8 +93,8 @@ async function run() {
     })
   })
 
-  // Self-contained OIDC provider
-  app.use('/oauth/*', rateLimitMiddleware)
+  // Self-contained OIDC provider (stricter IP-based rate limit)
+  app.use('/oauth/*', oauthRateLimit)
   app.route('/oauth', oauthApp)
 
   // matrix server info
@@ -103,7 +107,9 @@ async function run() {
   app.route('/_matrix/client/v1/auth_metadata', metadataRoute)
   app.route('/_matrix/client/unstable/org.matrix.msc2965/auth_metadata', metadataRoute)
 
-  /* auth */
+  /* auth — stricter IP-based rate limits for login/register */
+  app.use('/_matrix/client/v3/register/*', registerRateLimit)
+  app.use('/_matrix/client/v3/login/*', loginRateLimit)
   app.route('/_matrix/client/v3/register', registerRoute)
   app.route('/_matrix/client/v3/login', loginRoute)
   app.route('/_matrix/client/v3/login/sso/redirect', ssoRedirectRoute)
@@ -149,7 +155,9 @@ async function run() {
   app.route('/_matrix/client/v3/voip/turnServer', turnServerRoute)
   app.route('/_matrix/client/v1/rtc/transports', rtcTransportsRoute)
 
-  /* e2ee */
+  /* e2ee — stricter rate limits for key operations */
+  app.use('/_matrix/client/v3/keys/upload/*', keysUploadRateLimit)
+  app.use('/_matrix/client/v3/keys/claim/*', keysClaimRateLimit)
   app.route('/_matrix/client/v3/keys/query', keysQueryRoute)
   app.route('/_matrix/client/v3/keys/upload', keysUploadRoute)
   app.route('/_matrix/client/v3/keys/claim', keysClaimRoute)

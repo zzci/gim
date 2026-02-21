@@ -97,6 +97,11 @@ export async function authMiddleware(c: Context, next: Next) {
 
   c.set('auth', { userId, deviceId, isGuest: false, trustState } as AuthContext)
 
+  // Blocked devices cannot access any endpoint
+  if (trustState === 'blocked') {
+    return matrixError(c, 'M_FORBIDDEN', 'Device is blocked', { errcode_detail: 'M_DEVICE_BLOCKED' })
+  }
+
   if (trustState !== 'trusted') {
     if (!isPathAllowedForUnverifiedDevice(c.req.path, c.req.method))
       return matrixError(c, 'M_FORBIDDEN', 'Device is not verified', { errcode_detail: 'M_DEVICE_UNVERIFIED' })
