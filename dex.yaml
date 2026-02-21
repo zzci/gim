@@ -23,8 +23,21 @@ staticClients:
 
 enablePasswordDB: true
 
+# Test accounts (all passwords: password)
 staticPasswords:
   - email: admin@example.com
     hash: $2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W
     username: admin
     userID: 08a8684b-db88-4b73-90a9-3cd1661f5466
+  - email: alice@example.com
+    hash: $2b$10$FrSBmn14WRPooGapWP2DMuGJX57ZcO1a2actE3/EwRswkPHCgHzie
+    username: alice
+    userID: 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d
+  - email: bob@example.com
+    hash: $2b$10$Rn.38XPsbqm5OxtwX68sbeloiuAzB0YiTpwhW8bdmpMTypvyLZvMe
+    username: bob
+    userID: 2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e
+  - email: charlie@example.com
+    hash: $2b$10$R2YVjGqoSNnHGF1r95Uk6.AYETtul8/MyzVSocGJFCG1hA5SrxvZ.
+    username: charlie
+    userID: 3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f

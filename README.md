@@ -55,13 +55,14 @@ docker compose up -d
 docker compose --profile dex up -d
 ```
 
-Dex 默认配置（`dex.yaml`）包含一个测试账号：
+Dex 默认配置（`dex.yaml`）包含以下测试账号（密码均为 `password`）：
 
-| 字段 | 值 |
-|------|----|
-| Email | `admin@example.com` |
-| 密码 | `password` |
-| 用户名 | `admin` |
+| Email | 用户名 |
+|-------|--------|
+| `admin@example.com` | `admin` |
+| `alice@example.com` | `alice` |
+| `bob@example.com` | `bob` |
+| `charlie@example.com` | `charlie` |
 
 Dex 管理界面访问：`http://localhost:5556/dex`
 
