@@ -139,11 +139,12 @@ export async function rateLimitMiddleware(c: Context, next: Next) {
 }
 
 // Pre-built rate limiters for sensitive endpoints
-const rateLimitLoginMax = Number(process.env.IM_RATE_LIMIT_LOGIN_MAX) || 10
-const rateLimitRegisterMax = Number(process.env.IM_RATE_LIMIT_REGISTER_MAX) || 5
+const rateLimitLoginMax = Number(process.env.IM_RATE_LIMIT_LOGIN_MAX) || 30
+const rateLimitRegisterMax = Number(process.env.IM_RATE_LIMIT_REGISTER_MAX) || 15
+const rateLimitOauthMax = Number(process.env.IM_RATE_LIMIT_OAUTH_MAX) || 100
 
 export const loginRateLimit = createRateLimitMiddleware({ maxRequests: rateLimitLoginMax, keyPrefix: 'rl:login', keyBy: 'ip' })
 export const registerRateLimit = createRateLimitMiddleware({ maxRequests: rateLimitRegisterMax, keyPrefix: 'rl:register', keyBy: 'ip' })
-export const oauthRateLimit = createRateLimitMiddleware({ maxRequests: 20, keyPrefix: 'rl:oauth', keyBy: 'ip' })
+export const oauthRateLimit = createRateLimitMiddleware({ maxRequests: rateLimitOauthMax, keyPrefix: 'rl:oauth', keyBy: 'ip' })
 export const keysUploadRateLimit = createRateLimitMiddleware({ maxRequests: 60, keyPrefix: 'rl:keys_upload' })
 export const keysClaimRateLimit = createRateLimitMiddleware({ maxRequests: 120, keyPrefix: 'rl:keys_claim' })
