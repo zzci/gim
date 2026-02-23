@@ -24,9 +24,6 @@
     "examples:setup": "bun run examples/setup.ts",
     "examples:test": "bun run examples/01-sync.ts && bun run examples/02-rooms.ts && bun run examples/03-messages.ts && bun run examples/04-state.ts && bun run examples/05-e2ee-keys.ts && bun run examples/06-admin.ts && bun run examples/07-send-to-device.ts && bun run examples/08-multi-device-keys.ts && bun run examples/09-device-verification.ts && bun run examples/10-notifications.ts"
   },
-  "peerDependencies": {
-    "typescript": "^5.8.3"
-  },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
     "@aws-sdk/s3-request-presigner": "^3.995.0",
@@ -41,11 +38,11 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@antfu/eslint-config": "^4.19.0",
+    "@antfu/eslint-config": "^7.4.3",
     "@types/bun": "latest",
     "better-sqlite3": "^12.6.2",
     "drizzle-kit": "^0.31.9",
-    "eslint": "^9.39.3",
-    "wrangler": "^4.67.0"
+    "eslint": "^10.0.1",
+    "wrangler": "^4.67.1"
   }
 }
