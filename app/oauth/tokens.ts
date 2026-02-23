@@ -20,29 +20,30 @@ import { generateDeviceId } from '@/utils/tokens'
 // Persist ECDSA P-256 key pair for id_token signing across restarts
 const KEY_FILE = 'data/oidc-signing-key.json'
 
-function loadOrGenerateKeyPair(): { privateKey: KeyObject, publicKey: KeyObject } {
+// logger may not be available yet at module load time, fall back to console
+const log = typeof globalThis.logger !== 'undefined' ? globalThis.logger : console
+
+function loadOrGenerateKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
   try {
     if (existsSync(KEY_FILE)) {
       const raw = readFileSync(KEY_FILE, 'utf-8')
       const jwk = JSON.parse(raw)
       const priv = createPrivateKey({ key: jwk, format: 'jwk' })
       const pub = createPublicKey(priv)
-      logger.info('Loaded OIDC signing key from disk')
+      log.info('Loaded OIDC signing key from disk')
       return { privateKey: priv, publicKey: pub }
     }
-  }
-  catch (err) {
-    logger.warn({ err }, 'Failed to load OIDC signing key, generating new one')
+  } catch (err) {
+    log.warn({ err }, 'Failed to load OIDC signing key, generating new one')
   }
 
   const pair = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   const jwk = pair.privateKey.export({ format: 'jwk' })
   try {
     writeFileSync(KEY_FILE, JSON.stringify(jwk, null, 2))
-    logger.info('Generated and saved new OIDC signing key')
-  }
-  catch (err) {
-    logger.error({ err }, 'Failed to save OIDC signing key to disk')
+    log.info('Generated and saved new OIDC signing key')
+  } catch (err) {
+    log.error({ err }, 'Failed to save OIDC signing key to disk')
   }
   return pair
 }
@@ -105,26 +106,23 @@ function createIdToken(sub: string, clientId: string, nonce?: string): string {
     iat: now,
     exp: now + 3600,
   }
-  if (nonce)
-    claims.nonce = nonce
+  if (nonce) claims.nonce = nonce
   return signJwt(claims)
 }
 
 // Validate Matrix device_id for OAuth/MSC2965 flows.
 // Accept RFC3986 unreserved chars to interop with Matrix clients.
 function isValidDeviceId(id: string): boolean {
-  if (!id || id.length > 255)
-    return false
+  if (!id || id.length > 255) return false
   return /^[\w.~-]+$/.test(id)
 }
 
-function extractDeviceScope(scope: string): { deviceId: string, prefix: string } | null {
+function extractDeviceScope(scope: string): { deviceId: string; prefix: string } | null {
   for (const token of scope.split(/\s+/).filter(Boolean)) {
     for (const prefix of DEVICE_SCOPE_PREFIXES) {
       if (token.startsWith(prefix)) {
         const deviceId = token.slice(prefix.length)
-        if (deviceId)
-          return { deviceId, prefix }
+        if (deviceId) return { deviceId, prefix }
       }
     }
   }
@@ -147,8 +145,7 @@ function upsertDeviceScope(
     }
     return token
   })
-  if (!replaced)
-    next.push(`${preferredPrefix}${deviceId}`)
+  if (!replaced) next.push(`${preferredPrefix}${deviceId}`)
   return next.join(' ')
 }
 
@@ -175,8 +172,7 @@ async function createTokenPair(
         .from(devices)
         .where(and(eq(devices.userId, userId), eq(devices.id, deviceId)))
         .get()
-      if (!existing)
-        break
+      if (!existing) break
     }
 
     // Inject device scope: replace invalid one or append.
@@ -188,8 +184,7 @@ async function createTokenPair(
       .select({ id: devices.id })
       .from(devices)
       .where(eq(devices.userId, userId))
-      .all()
-      .length
+      .all().length
     const hasCrossSigningKeys = !!db
       .select({ userId: accountDataCrossSigning.userId })
       .from(accountDataCrossSigning)
@@ -375,8 +370,7 @@ export async function exchangeAuthCode(
   redirectUri: string,
 ): Promise<TokenResult | TokenError> {
   const info = validateAuthCode(code, codeVerifier, clientId, redirectUri)
-  if ('error' in info)
-    return info
+  if ('error' in info) return info
   return createTokenPair(info.accountId, info.scope, info.clientId, info.grantId, info.nonce)
 }
 
@@ -410,8 +404,7 @@ export async function exchangeRefreshToken(
       .from(oauthTokens)
       .where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`))
       .get()
-    if (!row)
-      return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
+    if (!row) return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
     if (row.expiresAt && row.expiresAt.getTime() < Date.now())
       return { error: 'invalid_grant', error_description: 'Refresh token expired' }
     return { error: 'invalid_grant', error_description: 'Refresh token already used' }
@@ -422,8 +415,7 @@ export async function exchangeRefreshToken(
     .from(oauthTokens)
     .where(eq(oauthTokens.id, `RefreshToken:${refreshToken}`))
     .get()
-  if (!row)
-    return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
+  if (!row) return { error: 'invalid_grant', error_description: 'Unknown refresh token' }
 
   const accountId = row.accountId!
   let scope = row.scope || 'openid'
