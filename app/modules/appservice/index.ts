@@ -1,0 +1,1 @@
+export { appServicePingRoute } from './pingRoute'

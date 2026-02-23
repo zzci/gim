@@ -1,0 +1,6 @@
+export * from './configRoute'
+export * from './createRoute'
+export * from './downloadRoute'
+export * from './previewRoute'
+export * from './thumbnailRoute'
+export * from './uploadRoute'

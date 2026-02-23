@@ -1,0 +1,51 @@
+{
+  "name": "gim",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "module": "index.ts",
+  "scripts": {
+    "lint": "eslint",
+    "dev": "bun --hot app/index.ts",
+    "start": "bun app/index.ts",
+    "lint:fix": "eslint --fix",
+    "s3": "bun run tools/s3-upload.ts",
+    "db:reset": "bun run tools/reset-env.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "env:rebuild": "bun run db:reset && bun run db:migrate",
+    "env:rebuild:seed": "bun run env:rebuild && bun run examples:setup",
+    "db:studio": "drizzle-kit studio --host 0.0.0.0 --port 3000",
+    "test": "bun test",
+    "admin:create": "bun run tools/admin-create.ts",
+    "admin:dev": "cd admin && bun run dev",
+    "admin:build": "cd admin && bun run build",
+    "examples:setup": "bun run examples/setup.ts",
+    "examples:test": "bun run examples/01-sync.ts && bun run examples/02-rooms.ts && bun run examples/03-messages.ts && bun run examples/04-state.ts && bun run examples/05-e2ee-keys.ts && bun run examples/06-admin.ts && bun run examples/07-send-to-device.ts && bun run examples/08-multi-device-keys.ts && bun run examples/09-device-verification.ts && bun run examples/10-notifications.ts"
+  },
+  "peerDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.995.0",
+    "@aws-sdk/s3-request-presigner": "^3.995.0",
+    "croner": "^10.0.1",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.12.2",
+    "nanoid": "^5.1.6",
+    "ulid": "^3.0.2",
+    "unstorage": "^1.17.4",
+    "winston": "^3.19.0",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^4.19.0",
+    "@types/bun": "latest",
+    "better-sqlite3": "^12.6.2",
+    "drizzle-kit": "^0.31.9",
+    "eslint": "^9.39.3",
+    "wrangler": "^4.67.0"
+  }
+}

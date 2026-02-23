@@ -1,0 +1,41 @@
+services:
+  gim:
+    image: zzci/gim
+    ports:
+      - "${IM_PORT:-3000}:3000"
+    volumes:
+      - gim-data:/app/data
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - DB_PATH=/app/data/gim.db
+      - IM_AS_REGISTRATION_DIR=/app/data/appservices
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  dex:
+    image: dexidp/dex:latest
+    command: ["dex", "serve", "/etc/dex/dex.yaml"]
+    volumes:
+      - ./dex.yaml:/etc/dex/dex.yaml:ro
+      - dex-data:/var/dex
+    ports:
+      - "${DEX_PORT:-5556}:5556"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5556/dex/.well-known/openid-configuration"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    profiles:
+      - dex
+
+volumes:
+  gim-data:
+  dex-data:

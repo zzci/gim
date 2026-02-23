@@ -1,0 +1,1 @@
+export { syncRoute } from './syncGetRoute'

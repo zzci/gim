@@ -1,0 +1,70 @@
+import type { AuthEnv } from '@/shared/middleware/auth'
+import { and, eq } from 'drizzle-orm'
+import { Hono } from 'hono'
+import { db } from '@/db'
+import { accountDataCrossSigning, accounts, accountTokens, devices, e2eeDeviceKeys, e2eeFallbackKeys, e2eeOneTimeKeys, e2eeToDeviceMessages, oauthTokens, roomMembers } from '@/db/schema'
+import { invalidateDeactivatedCache } from '@/models/account'
+import { invalidateAccountTokens } from '@/modules/account/tokenCache'
+import { createEvent } from '@/modules/message/service'
+import { invalidateOAuthAccessTokensByAccountId } from '@/oauth/accessTokenCache'
+import { authMiddleware } from '@/shared/middleware/auth'
+
+export const deactivateRoute = new Hono<AuthEnv>()
+deactivateRoute.use('/*', authMiddleware)
+
+deactivateRoute.post('/', async (c) => {
+  const auth = c.get('auth')
+  const userId = auth.userId
+
+  const { joinedRooms, revokedTokens, localpart } = db.transaction((tx) => {
+    tx.update(accounts).set({ isDeactivated: true }).where(eq(accounts.id, userId)).run()
+
+    const localpart = userId.split(':')[0]?.slice(1) || ''
+    tx.delete(oauthTokens).where(eq(oauthTokens.accountId, localpart)).run()
+
+    const revokedTokenRows = tx.select({ token: accountTokens.token })
+      .from(accountTokens)
+      .where(eq(accountTokens.userId, userId))
+      .all()
+
+    tx.delete(accountTokens).where(eq(accountTokens.userId, userId)).run()
+
+    const rooms = tx.select({ roomId: roomMembers.roomId })
+      .from(roomMembers)
+      .where(and(
+        eq(roomMembers.userId, userId),
+        eq(roomMembers.membership, 'join'),
+      ))
+      .all()
+
+    tx.delete(e2eeDeviceKeys).where(eq(e2eeDeviceKeys.userId, userId)).run()
+    tx.delete(e2eeOneTimeKeys).where(eq(e2eeOneTimeKeys.userId, userId)).run()
+    tx.delete(e2eeFallbackKeys).where(eq(e2eeFallbackKeys.userId, userId)).run()
+    tx.delete(e2eeToDeviceMessages).where(eq(e2eeToDeviceMessages.userId, userId)).run()
+    tx.delete(accountDataCrossSigning).where(eq(accountDataCrossSigning.userId, userId)).run()
+
+    tx.delete(devices).where(eq(devices.userId, userId)).run()
+
+    return {
+      joinedRooms: rooms,
+      revokedTokens: revokedTokenRows.map(r => r.token),
+      localpart,
+    }
+  })
+
+  await invalidateAccountTokens(revokedTokens)
+  await invalidateOAuthAccessTokensByAccountId(localpart)
+  await invalidateDeactivatedCache(userId)
+
+  for (const { roomId } of joinedRooms) {
+    await createEvent({
+      roomId,
+      sender: userId,
+      type: 'm.room.member',
+      stateKey: userId,
+      content: { membership: 'leave' },
+    })
+  }
+
+  return c.json({ id_server_unbind_result: 'no-support' })
+})
