@@ -42,7 +42,14 @@ export async function provisionUserWithUpstreamSub(
         .set({ upstreamSub })
         .where(and(eq(accounts.id, userId), isNull(accounts.upstreamSub)))
         .run()
-      return { ok: true, userId, localpart }
+      const bound = db
+        .select({ upstreamSub: accounts.upstreamSub })
+        .from(accounts)
+        .where(eq(accounts.id, userId))
+        .get()
+      if (bound?.upstreamSub === upstreamSub)
+        return { ok: true, userId, localpart }
+      return { ok: false, conflictUserId: userId }
     }
 
     if (existing.upstreamSub !== upstreamSub)
@@ -51,8 +58,20 @@ export async function provisionUserWithUpstreamSub(
     return { ok: true, userId, localpart }
   }
 
-  db.insert(accounts).values({ id: userId, displayname: localpart, upstreamSub }).run()
-  return { ok: true, userId, localpart }
+  try {
+    db.insert(accounts).values({ id: userId, displayname: localpart, upstreamSub }).run()
+    return { ok: true, userId, localpart }
+  }
+  catch {
+    const afterRace = db
+      .select({ upstreamSub: accounts.upstreamSub })
+      .from(accounts)
+      .where(eq(accounts.id, userId))
+      .get()
+    if (afterRace?.upstreamSub === upstreamSub)
+      return { ok: true, userId, localpart }
+    return { ok: false, conflictUserId: userId }
+  }
 }
 
 export function isLocalpartAvailableForUpstreamSub(

@@ -37,9 +37,6 @@ const MSC2967_DEVICE_SCOPE_PREFIX = 'urn:matrix:org.matrix.msc2967.client:device
 const OAUTH_STATE_TTL = 600 // 10 minutes
 
 const registeredRedirectUris = new Set<string>()
-const GENERATED_LOCALPART_PREFIX = 'gid-'
-const GENERATED_LOCALPART_LEN = 10
-const GENERATED_LOCALPART_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
 
 function maskValue(value: string): string {
   if (value.length <= 12)
@@ -56,6 +53,18 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#39;')
 }
 
+async function readJsonObject(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const data = await res.json()
+    if (!data || typeof data !== 'object' || Array.isArray(data))
+      return null
+    return data as Record<string, unknown>
+  }
+  catch {
+    return null
+  }
+}
+
 // ---- Upstream OIDC discovery (lazy-cached) ----
 
 interface UpstreamConfig {
@@ -70,15 +79,7 @@ const UPSTREAM_CONFIG_TTL = 24 * 60 * 60 * 1000
 
 const MATRIX_LOCALPART_RE = /^[a-z0-9._=/+-]+$/
 
-export function generateFallbackLocalpart(): string {
-  const bytes = randomBytes(GENERATED_LOCALPART_LEN)
-  let suffix = ''
-  for (let i = 0; i < GENERATED_LOCALPART_LEN; i += 1)
-    suffix += GENERATED_LOCALPART_ALPHABET[bytes[i]! % GENERATED_LOCALPART_ALPHABET.length]
-  return `${GENERATED_LOCALPART_PREFIX}${suffix}`
-}
-
-type LocalpartSource = 'preferred_username' | 'username' | 'preffered_username' | 'generated'
+type LocalpartSource = 'preferred_username' | 'username' | 'preffered_username' | 'missing'
 
 export function resolveUpstreamLocalpart(userinfo: Record<string, unknown>): {
   localpart: string
@@ -101,7 +102,7 @@ export function resolveUpstreamLocalpart(userinfo: Record<string, unknown>): {
   if (misspelledPreferred)
     return { localpart: misspelledPreferred, source: 'preffered_username' }
 
-  return { localpart: generateFallbackLocalpart(), source: 'generated' }
+  return { localpart: '', source: 'missing' }
 }
 
 async function getUpstreamConfig(): Promise<UpstreamConfig> {
@@ -649,10 +650,28 @@ oauthApp.get('/auth/callback', async (c) => {
     body: new URLSearchParams(tokenBody),
     signal: AbortSignal.timeout(10_000),
   })
+  const tokenData = await readJsonObject(tokenRes)
+  if (!tokenRes.ok || !tokenData) {
+    logger.error('Upstream token endpoint returned invalid response', {
+      status: tokenRes.status,
+      ok: tokenRes.ok,
+    })
+    return c.json(
+      { errcode: 'M_UNKNOWN', error: 'Failed to exchange upstream authorization code' },
+      502,
+    )
+  }
 
-  const tokenData = (await tokenRes.json()) as Record<string, unknown>
   if (tokenData.error) {
     logger.error('Upstream token exchange failed:', tokenData.error_description || tokenData.error)
+    return c.json(
+      { errcode: 'M_UNKNOWN', error: 'Failed to exchange upstream authorization code' },
+      502,
+    )
+  }
+  const upstreamAccessToken = typeof tokenData.access_token === 'string' ? tokenData.access_token : ''
+  if (!upstreamAccessToken) {
+    logger.error('Upstream token endpoint missing access_token')
     return c.json(
       { errcode: 'M_UNKNOWN', error: 'Failed to exchange upstream authorization code' },
       502,
@@ -661,11 +680,20 @@ oauthApp.get('/auth/callback', async (c) => {
 
   // Fetch userinfo from upstream
   const userinfoRes = await fetch(upstream.userinfo_endpoint, {
-    headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    headers: { Authorization: `Bearer ${upstreamAccessToken}` },
     signal: AbortSignal.timeout(10_000),
   })
-
-  const userinfo = (await userinfoRes.json()) as Record<string, unknown>
+  const userinfo = await readJsonObject(userinfoRes)
+  if (!userinfoRes.ok || !userinfo) {
+    logger.error('Upstream userinfo endpoint returned invalid response', {
+      status: userinfoRes.status,
+      ok: userinfoRes.ok,
+    })
+    return c.json(
+      { errcode: 'M_UNKNOWN', error: 'Failed to retrieve upstream user profile' },
+      502,
+    )
+  }
   const resolvedUsername = resolveUpstreamLocalpart(userinfo)
   const upstreamSub = typeof userinfo.sub === 'string' ? userinfo.sub.trim() : ''
 
@@ -689,7 +717,7 @@ oauthApp.get('/auth/callback', async (c) => {
       return c.html(closePage)
     }
     const needsManualResolution
-      = resolvedUsername.source === 'generated'
+      = resolvedUsername.source === 'missing'
         || !MATRIX_LOCALPART_RE.test(claimedUsername)
         || !isLocalpartAvailableForUpstreamSub(claimedUsername, upstreamSub, serverName)
 
@@ -704,11 +732,9 @@ oauthApp.get('/auth/callback', async (c) => {
     if (!localpart) {
       const usernameState = randomBytes(16).toString('hex')
       const checkToken = randomBytes(16).toString('hex')
-      const suggestedUsername = resolvedUsername.source === 'generated'
-        ? generateFallbackLocalpart()
-        : claimedUsername
-      const initialError = resolvedUsername.source === 'generated'
-        ? 'Upstream did not provide a username. Please enter one to continue.'
+      const suggestedUsername = claimedUsername
+      const initialError = resolvedUsername.source === 'missing'
+        ? 'Upstream did not provide a usable username. Please enter a unique username to continue.'
         : 'Username is unavailable. Please enter another username.'
 
       await cacheSet(
