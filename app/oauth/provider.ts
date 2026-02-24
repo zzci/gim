@@ -19,7 +19,12 @@ import {
   invalidateOAuthAccessTokensByAccountDevice,
   invalidateOAuthAccessTokensByGrantId,
 } from '@/oauth/accessTokenCache'
-import { provisionUser } from './account'
+import {
+  findLocalpartByUpstreamSub,
+  isLocalpartAvailableForUpstreamSub,
+  provisionUserWithUpstreamSub,
+  setAccountProfileUsername,
+} from './account'
 import { exchangeAuthCode, exchangeRefreshToken, signingJwk, toTokenResponse } from './tokens'
 
 // Fixed client ID — this OIDC provider only serves Matrix auth (MSC2965)
@@ -32,6 +37,9 @@ const MSC2967_DEVICE_SCOPE_PREFIX = 'urn:matrix:org.matrix.msc2967.client:device
 const OAUTH_STATE_TTL = 600 // 10 minutes
 
 const registeredRedirectUris = new Set<string>()
+const GENERATED_LOCALPART_PREFIX = 'gid-'
+const GENERATED_LOCALPART_LEN = 10
+const GENERATED_LOCALPART_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
 
 function maskValue(value: string): string {
   if (value.length <= 12)
@@ -61,6 +69,40 @@ let upstreamConfigCachedAt = 0
 const UPSTREAM_CONFIG_TTL = 24 * 60 * 60 * 1000
 
 const MATRIX_LOCALPART_RE = /^[a-z0-9._=/+-]+$/
+
+export function generateFallbackLocalpart(): string {
+  const bytes = randomBytes(GENERATED_LOCALPART_LEN)
+  let suffix = ''
+  for (let i = 0; i < GENERATED_LOCALPART_LEN; i += 1)
+    suffix += GENERATED_LOCALPART_ALPHABET[bytes[i]! % GENERATED_LOCALPART_ALPHABET.length]
+  return `${GENERATED_LOCALPART_PREFIX}${suffix}`
+}
+
+type LocalpartSource = 'preferred_username' | 'username' | 'preffered_username' | 'generated'
+
+export function resolveUpstreamLocalpart(userinfo: Record<string, unknown>): {
+  localpart: string
+  source: LocalpartSource
+} {
+  const preferred = typeof userinfo.preferred_username === 'string'
+    ? userinfo.preferred_username.trim()
+    : ''
+  if (preferred)
+    return { localpart: preferred, source: 'preferred_username' }
+
+  const username = typeof userinfo.username === 'string' ? userinfo.username.trim() : ''
+  if (username)
+    return { localpart: username, source: 'username' }
+
+  // Compatibility: some providers use the misspelled key.
+  const misspelledPreferred = typeof userinfo.preffered_username === 'string'
+    ? userinfo.preffered_username.trim()
+    : ''
+  if (misspelledPreferred)
+    return { localpart: misspelledPreferred, source: 'preffered_username' }
+
+  return { localpart: generateFallbackLocalpart(), source: 'generated' }
+}
 
 async function getUpstreamConfig(): Promise<UpstreamConfig> {
   if (upstreamConfig && Date.now() - upstreamConfigCachedAt < UPSTREAM_CONFIG_TTL)
@@ -99,6 +141,17 @@ interface UpstreamAuthState {
   codeVerifier: string // PKCE verifier for upstream
   expiresAt: number
 }
+
+interface UsernameResolutionState {
+  authState: UpstreamAuthState
+  upstreamSub: string
+  suggestedUsername: string
+  checkToken: string
+  expiresAt: number
+}
+
+const USERNAME_CHECK_RATE_LIMIT_WINDOW_SEC = 60
+const USERNAME_CHECK_RATE_LIMIT_MAX = 30
 
 // ---- Helpers ----
 
@@ -258,6 +311,133 @@ ${rows}
 </table>
 <button onclick="window.close()">Close</button>
 </body></html>`
+}
+
+function renderUsernameResolutionPage(
+  state: string,
+  suggestedUsername: string,
+  checkToken: string,
+  error?: string,
+) {
+  const errorBlock = error
+    ? `<p style="color:#b00020;background:#fdecea;border:1px solid #f5c2c7;padding:10px 12px;border-radius:6px">${escapeHtml(error)}</p>`
+    : ''
+
+  return `<!DOCTYPE html>
+<html><head><title>Choose Username — gim</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,sans-serif;max-width:520px;margin:56px auto;padding:0 20px}
+h2{margin:0 0 10px}
+p{color:#333;line-height:1.5}
+label{display:block;margin:16px 0 6px;font-weight:600}
+input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font:inherit}
+small{display:block;color:#666;margin-top:8px}
+small#availability{margin-top:6px;min-height:18px}
+button{padding:10px 16px;background:#0066cc;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:16px}
+</style></head><body>
+<h2>Choose a username</h2>
+<p>Please choose a username to continue sign-in.</p>
+${errorBlock}
+<form method="post" action="${escapeHtml(`${issuer}/auth/resolve-username`)}">
+  <input type="hidden" name="state" value="${escapeHtml(state)}">
+  <label for="username">Username</label>
+  <input id="username" name="username" value="${escapeHtml(suggestedUsername)}" required maxlength="255" autocomplete="username" pattern="[a-z0-9._=/+-]+">
+  <small id="availability"></small>
+  <small>Allowed characters: a-z, 0-9, . _ = / + -</small>
+  <button type="submit">Continue</button>
+</form>
+<script>
+(() => {
+  const input = document.getElementById('username')
+  const status = document.getElementById('availability')
+  if (!input || !status)
+    return
+  const state = ${JSON.stringify(state)}
+  const checkToken = ${JSON.stringify(checkToken)}
+  let timer = null
+  const setStatus = (text, color) => {
+    status.textContent = text || ''
+    status.style.color = color || '#666'
+  }
+  const check = async () => {
+    const username = input.value.trim()
+    if (!username) {
+      setStatus('', '#666')
+      return
+    }
+    try {
+      const res = await fetch('/oauth/auth/check-username?state=' + encodeURIComponent(state) + '&username=' + encodeURIComponent(username), {
+        credentials: 'same-origin',
+        headers: { Authorization: 'Bearer ' + checkToken },
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        setStatus(body.error || 'Unable to validate username.', '#b00020')
+        return
+      }
+      if (body.available)
+        setStatus('Username is available.', '#0a7f2e')
+      else
+        setStatus(body.error || 'Username is not available.', '#b00020')
+    }
+    catch {
+      setStatus('Unable to validate username.', '#b00020')
+    }
+  }
+  const schedule = () => {
+    if (timer)
+      clearTimeout(timer)
+    timer = setTimeout(check, 300)
+  }
+  input.addEventListener('input', schedule)
+  input.addEventListener('blur', check)
+  if (input.value.trim())
+    check()
+})()
+</script>
+</body></html>`
+}
+
+function buildOAuthRedirect(localpart: string, authState: UpstreamAuthState): string {
+  const codeJti = randomBytes(16).toString('hex')
+  const grantId = randomBytes(16).toString('hex')
+
+  db.insert(oauthTokens)
+    .values({
+      id: `Grant:${grantId}`,
+      type: 'Grant',
+      accountId: localpart,
+      clientId: authState.clientId,
+      scope: authState.scope,
+      grantId,
+      expiresAt: new Date(Date.now() + 14 * 86400 * 1000),
+    })
+    .run()
+
+  db.insert(oauthTokens)
+    .values({
+      id: `AuthorizationCode:${codeJti}`,
+      type: 'AuthorizationCode',
+      accountId: localpart,
+      clientId: authState.clientId,
+      scope: authState.scope,
+      grantId,
+      payload: {
+        redirectUri: authState.redirectUri,
+        codeChallenge: authState.codeChallenge || undefined,
+        codeChallengeMethod: authState.codeChallengeMethod || undefined,
+        nonce: authState.nonce || undefined,
+      },
+      expiresAt: new Date(Date.now() + 60 * 1000),
+    })
+    .run()
+
+  const target = new URL(authState.redirectUri)
+  target.searchParams.set('code', codeJti)
+  if (authState.state)
+    target.searchParams.set('state', authState.state)
+  return target.toString()
 }
 
 async function handleAccountAction(c: any, action: string) {
@@ -486,25 +666,64 @@ oauthApp.get('/auth/callback', async (c) => {
   })
 
   const userinfo = (await userinfoRes.json()) as Record<string, unknown>
-  const localpart = (userinfo.preferred_username || userinfo.username) as string | undefined
+  const resolvedUsername = resolveUpstreamLocalpart(userinfo)
+  const upstreamSub = typeof userinfo.sub === 'string' ? userinfo.sub.trim() : ''
 
-  if (!localpart) {
+  if (!upstreamSub) {
     logger.error(
-      'Upstream userinfo missing username/preferred_username field:',
+      'Upstream userinfo missing sub field:',
       JSON.stringify(userinfo),
     )
     return c.json(
-      { errcode: 'M_UNKNOWN', error: 'Upstream provider did not return a username' },
+      { errcode: 'M_UNKNOWN', error: 'Upstream provider did not return a stable sub identifier' },
       502,
     )
   }
 
-  if (!MATRIX_LOCALPART_RE.test(localpart)) {
-    logger.error('Upstream userinfo returned invalid localpart:', localpart)
-    return c.json(
-      { errcode: 'M_INVALID_USERNAME', error: 'Upstream username contains invalid characters' },
-      400,
-    )
+  const claimedUsername = resolvedUsername.localpart
+  const existingLocalpart = await findLocalpartByUpstreamSub(upstreamSub)
+  let localpart = existingLocalpart
+  if (!localpart) {
+    if (actionState) {
+      logger.warn('oauth_action_no_local_account_for_sub', { upstreamSub, action: actionState.action })
+      return c.html(closePage)
+    }
+    const needsManualResolution
+      = resolvedUsername.source === 'generated'
+        || !MATRIX_LOCALPART_RE.test(claimedUsername)
+        || !isLocalpartAvailableForUpstreamSub(claimedUsername, upstreamSub, serverName)
+
+    if (!needsManualResolution) {
+      const provisioned = await provisionUserWithUpstreamSub(claimedUsername, upstreamSub, serverName)
+      if (provisioned.ok) {
+        localpart = provisioned.localpart
+        setAccountProfileUsername(`@${localpart}:${serverName}`, claimedUsername)
+      }
+    }
+
+    if (!localpart) {
+      const usernameState = randomBytes(16).toString('hex')
+      const checkToken = randomBytes(16).toString('hex')
+      const suggestedUsername = resolvedUsername.source === 'generated'
+        ? generateFallbackLocalpart()
+        : claimedUsername
+      const initialError = resolvedUsername.source === 'generated'
+        ? 'Upstream did not provide a username. Please enter one to continue.'
+        : 'Username is unavailable. Please enter another username.'
+
+      await cacheSet(
+        `oauth:username:${usernameState}`,
+        {
+          authState: authState!,
+          upstreamSub,
+          suggestedUsername,
+          checkToken,
+          expiresAt: Date.now() + OAUTH_STATE_TTL * 1000,
+        } satisfies UsernameResolutionState,
+        { ttl: OAUTH_STATE_TTL },
+      )
+      return c.html(renderUsernameResolutionPage(usernameState, suggestedUsername, checkToken, initialError))
+    }
   }
 
   // ---- Account management action flow ----
@@ -544,47 +763,81 @@ oauthApp.get('/auth/callback', async (c) => {
   }
 
   // ---- OAuth authorization flow ----
-  await provisionUser(localpart, serverName)
+  return c.redirect(buildOAuthRedirect(localpart, authState!))
+})
 
-  const codeJti = randomBytes(16).toString('hex')
-  const grantId = randomBytes(16).toString('hex')
+// GET /auth/check-username — validate username availability during manual resolution
+oauthApp.get('/auth/check-username', async (c) => {
+  const state = c.req.query('state') || ''
+  const username = (c.req.query('username') || '').trim()
+  const authHeader = c.req.header('Authorization') || ''
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
 
-  db.insert(oauthTokens)
-    .values({
-      id: `Grant:${grantId}`,
-      type: 'Grant',
-      accountId: localpart,
-      clientId: authState!.clientId,
-      scope: authState!.scope,
-      grantId,
-      expiresAt: new Date(Date.now() + 14 * 86400 * 1000),
-    })
-    .run()
+  if (!state)
+    return c.json({ available: false, error: 'Missing state' }, 400)
 
-  db.insert(oauthTokens)
-    .values({
-      id: `AuthorizationCode:${codeJti}`,
-      type: 'AuthorizationCode',
-      accountId: localpart,
-      clientId: authState!.clientId,
-      scope: authState!.scope,
-      grantId,
-      payload: {
-        redirectUri: authState!.redirectUri,
-        codeChallenge: authState!.codeChallenge || undefined,
-        codeChallengeMethod: authState!.codeChallengeMethod || undefined,
-        nonce: authState!.nonce || undefined,
-      },
-      expiresAt: new Date(Date.now() + 60 * 1000),
-    })
-    .run()
+  const usernameState = await cacheGet<UsernameResolutionState>(`oauth:username:${state}`)
+  if (!usernameState || usernameState.expiresAt < Date.now())
+    return c.json({ available: false, error: 'Session expired. Please restart login.' }, 400)
 
-  const target = new URL(authState!.redirectUri)
-  target.searchParams.set('code', codeJti)
-  if (authState!.state)
-    target.searchParams.set('state', authState!.state)
+  if (!bearer || bearer !== usernameState.checkToken)
+    return c.json({ available: false, error: 'Unauthorized username check token.' }, 401)
 
-  return c.redirect(target.toString())
+  const rlKey = `oauth:username:rl:${state}:${bearer}`
+  const hitCount = (await cacheGet<number>(rlKey)) || 0
+  if (hitCount >= USERNAME_CHECK_RATE_LIMIT_MAX) {
+    return c.json({ available: false, error: 'Too many checks. Please wait and retry.' }, 429)
+  }
+  await cacheSet(rlKey, hitCount + 1, { ttl: USERNAME_CHECK_RATE_LIMIT_WINDOW_SEC })
+
+  if (!username || !MATRIX_LOCALPART_RE.test(username))
+    return c.json({ available: false, error: 'Invalid username format.' }, 200)
+
+  if (!isLocalpartAvailableForUpstreamSub(username, usernameState.upstreamSub, serverName))
+    return c.json({ available: false, error: 'Username is already in use.' }, 200)
+
+  return c.json({ available: true }, 200)
+})
+
+// POST /auth/resolve-username — complete login with user-selected username
+oauthApp.post('/auth/resolve-username', async (c) => {
+  const body = (await c.req.parseBody()) as Record<string, string>
+  const state = body.state || ''
+  const inputUsername = (body.username || '').trim()
+
+  if (!state)
+    return c.json({ errcode: 'M_MISSING_PARAM', error: 'Missing state' }, 400)
+
+  const usernameState = await cacheGet<UsernameResolutionState>(`oauth:username:${state}`)
+  if (!usernameState) {
+    return c.html(renderUsernameResolutionPage('', inputUsername, '', 'Session expired. Please restart login.'))
+  }
+
+  if (usernameState.expiresAt < Date.now()) {
+    await cacheDel(`oauth:username:${state}`)
+    return c.html(renderUsernameResolutionPage('', inputUsername, '', 'Session expired. Please restart login.'))
+  }
+
+  if (!inputUsername || !MATRIX_LOCALPART_RE.test(inputUsername)) {
+    return c.html(renderUsernameResolutionPage(state, inputUsername, usernameState.checkToken, 'Invalid username format.'))
+  }
+
+  if (!isLocalpartAvailableForUpstreamSub(inputUsername, usernameState.upstreamSub, serverName)) {
+    return c.html(renderUsernameResolutionPage(state, inputUsername, usernameState.checkToken, 'Username is already in use.'))
+  }
+
+  const provisioned = await provisionUserWithUpstreamSub(
+    inputUsername,
+    usernameState.upstreamSub,
+    serverName,
+  )
+  if (!provisioned.ok) {
+    return c.html(renderUsernameResolutionPage(state, inputUsername, usernameState.checkToken, 'Username is already in use.'))
+  }
+
+  setAccountProfileUsername(`@${provisioned.localpart}:${serverName}`, inputUsername)
+  await cacheDel(`oauth:username:${state}`)
+  return c.redirect(buildOAuthRedirect(provisioned.localpart, usernameState.authState))
 })
 
 // POST /token — handle authorization_code and refresh_token grant types

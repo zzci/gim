@@ -36,6 +36,7 @@ CREATE TABLE `account_tokens` (
 CREATE INDEX `account_tokens_user_id_idx` ON `account_tokens` (`user_id`);--> statement-breakpoint
 CREATE TABLE `accounts` (
 	`id` text PRIMARY KEY NOT NULL,
+	`upstream_sub` text,
 	`displayname` text,
 	`avatar_url` text,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
@@ -44,6 +45,7 @@ CREATE TABLE `accounts` (
 	`admin` integer DEFAULT false NOT NULL
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `accounts_upstream_sub_unique` ON `accounts` (`upstream_sub`);--> statement-breakpoint
 CREATE TABLE `admin_audit_log` (
 	`id` text PRIMARY KEY NOT NULL,
 	`admin_user_id` text NOT NULL,

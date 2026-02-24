@@ -7,6 +7,7 @@ import { generateUlid } from '@/utils/tokens'
 
 export const accounts = sqliteTable('accounts', {
   id: text('id').primaryKey(), // @user:server
+  upstreamSub: text('upstream_sub').unique(), // upstream OIDC sub (stable user identity)
   displayname: text('displayname'),
   avatarUrl: text('avatar_url'), // mxc:// URI
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
